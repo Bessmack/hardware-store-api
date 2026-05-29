@@ -1,0 +1,60 @@
+# Binaries and build output
+/bin/
+/build/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go test & coverage
+coverage.out
+*.coverprofile
+
+# Vendor (uncomment if you don't commit vendor/)
+# /vendor/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.iml
+*.swp
+
+# Environment / secrets
+.env
+*.key
+credentials.json
+.aws/
+
+# Logs and temp files
+*.log
+tmp/
+tmp-*/
+.cache/
+*.pid
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated files
+*.pb.go
+/gen/
+/generated/
+
+# Docker
+docker-compose.override.yml
+
+# Node / frontend
+node_modules/
+
+# Terraform / other tools
+.terraform/
+
+# Archives and backups
+*.zip
+*.tar.gz
+*~
+
+# Optional: ignore go module download cache if accidentally added
+/pkg/mod/
