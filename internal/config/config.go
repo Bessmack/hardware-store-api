@@ -19,7 +19,7 @@ type Config struct {
 	Airtel     AirtelConfig
 	WhatsApp   WhatsAppConfig
 	Email      EmailConfig
-	Maps       MapsConfig
+	Geo        GeoConfig
 	Cloudinary CloudinaryConfig
 	Dispute    DisputeConfig
 }
@@ -29,6 +29,7 @@ type AppConfig struct {
 	LogoURL string
 	Env     string
 	Port    string
+	URL     string // frontend URL — used for CORS and email redirect links
 }
 
 type DatabaseConfig struct {
@@ -44,11 +45,23 @@ type JWTConfig struct {
 	ExpiryHours int
 }
 
-// MpesaConfig holds global Daraja API credentials for generating access tokens.
-// Each store's own shortcode and passkey live in the stores table, not here.
+// MpesaConfig holds Daraja API credentials.
+//
+// ConsumerKey / ConsumerSecret: used to generate short-lived access tokens
+// from Safaricom's OAuth endpoint. These are global — one pair per application.
+//
+// Shortcode / Passkey: default credentials used when a store has not yet been
+// configured with its own in the stores table. Once a store's own shortcode
+// and passkey are set, those take precedence over these defaults.
+//
+// CallbackURL: the public HTTPS endpoint that Safaricom posts payment results to.
+// In development, expose your local server with ngrok.
 type MpesaConfig struct {
 	ConsumerKey    string
 	ConsumerSecret string
+	Shortcode      string
+	Passkey        string
+	CallbackURL    string
 	BaseURL        string
 }
 
@@ -58,29 +71,51 @@ type AirtelConfig struct {
 	BaseURL      string
 }
 
+// WhatsAppConfig holds Green API credentials.
+// Sign up at https://green-api.com — free tier available.
+// Fields:
+//   - APIURL:      base URL for all API calls
+//   - MediaURL:    base URL for sending media (images, PDFs)
+//   - IDInstance:  your instance ID shown on the Green API dashboard
+//   - APIToken:    authentication token
+//   - Phone:       the WhatsApp number messages are sent from (no + prefix)
 type WhatsAppConfig struct {
-	PhoneNumberID string
-	AccessToken   string
-	APIVersion    string
+	APIURL     string
+	MediaURL   string
+	IDInstance string
+	APIToken   string
+	Phone      string
 }
 
 // EmailConfig holds SMTP credentials for transactional email.
-// Works with Gmail (use an App Password, not your account password),
-// or any other SMTP provider — just swap the host/port.
+// Works with Gmail App Passwords, Outlook, or any SMTP relay.
 type EmailConfig struct {
 	Host     string
 	Port     int
 	User     string
 	Password string
-	FromName string // display name shown to email recipients
+	FromName string
 }
 
-type MapsConfig struct {
-	APIKey string
+// GeoConfig holds configuration for geocoding delivery addresses.
+// The system uses Nominatim (OpenStreetMap) as the primary geocoder — free,
+// no API key required. OpenCage is an optional fallback for higher volume.
+//
+// Nominatim rules:
+//   - Max 1 request/second (enforced by rate limiter in the geo package)
+//   - UserAgent must identify your application (required by Nominatim policy)
+//   - Free to use in production
+//
+// Distance calculation (store routing, delivery fees) uses the Haversine
+// formula internally — no API calls needed.
+type GeoConfig struct {
+	NominatimBaseURL  string
+	NominatimUserAgent string
+	OpenCageAPIKey    string // optional fallback — leave empty to skip
 }
 
 // CloudinaryConfig holds credentials for POD photo storage.
-// Two folders are used by the system:
+// Two folders are used:
 //   - delivery-photos/  → configure a 30-day auto-delete rule in Cloudinary dashboard
 //   - dispute-evidence/ → permanent, no deletion rule
 type CloudinaryConfig struct {
@@ -109,6 +144,7 @@ func Load() (*Config, error) {
 			LogoURL: getEnv("APP_LOGO_URL", "/images/logo.png"),
 			Env:     getEnv("APP_ENV", "development"),
 			Port:    getEnv("APP_PORT", "8080"),
+			URL:     getEnv("APP_URL", "http://localhost:5173"),
 		},
 		Database: DatabaseConfig{
 			URL: requireEnv("DATABASE_URL"),
@@ -123,6 +159,9 @@ func Load() (*Config, error) {
 		Mpesa: MpesaConfig{
 			ConsumerKey:    getEnv("MPESA_CONSUMER_KEY", ""),
 			ConsumerSecret: getEnv("MPESA_CONSUMER_SECRET", ""),
+			Shortcode:      getEnv("MPESA_SHORTCODE", ""),
+			Passkey:        getEnv("MPESA_PASSKEY", ""),
+			CallbackURL:    getEnv("MPESA_CALLBACK_URL", ""),
 			BaseURL:        getEnv("MPESA_BASE_URL", "https://sandbox.safaricom.co.ke"),
 		},
 		Airtel: AirtelConfig{
@@ -131,9 +170,11 @@ func Load() (*Config, error) {
 			BaseURL:      getEnv("AIRTEL_BASE_URL", "https://openapi.airtel.africa"),
 		},
 		WhatsApp: WhatsAppConfig{
-			PhoneNumberID: getEnv("WHATSAPP_PHONE_NUMBER_ID", ""),
-			AccessToken:   getEnv("WHATSAPP_ACCESS_TOKEN", ""),
-			APIVersion:    getEnv("WHATSAPP_API_VERSION", "v19.0"),
+			APIURL:     getEnv("GREENAPI_API_URL", "https://api.green-api.com"),
+			MediaURL:   getEnv("GREENAPI_MEDIA_URL", "https://media.green-api.com"),
+			IDInstance: getEnv("GREENAPI_ID_INSTANCE", ""),
+			APIToken:   getEnv("GREENAPI_API_TOKEN", ""),
+			Phone:      getEnv("GREENAPI_PHONE", ""),
 		},
 		Email: EmailConfig{
 			Host:     getEnv("SMTP_HOST", "smtp.gmail.com"),
@@ -142,8 +183,10 @@ func Load() (*Config, error) {
 			Password: getEnv("SMTP_PASSWORD", ""),
 			FromName: getEnv("SMTP_FROM_NAME", "Hardware Store"),
 		},
-		Maps: MapsConfig{
-			APIKey: getEnv("GOOGLE_MAPS_API_KEY", ""),
+		Geo: GeoConfig{
+			NominatimBaseURL:   getEnv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"),
+			NominatimUserAgent: getEnv("NOMINATIM_USER_AGENT", "HardwareStoreApp/1.0"),
+			OpenCageAPIKey:     getEnv("OPENCAGE_API_KEY", ""),
 		},
 		Cloudinary: CloudinaryConfig{
 			CloudName: requireEnv("CLOUDINARY_CLOUD_NAME"),
