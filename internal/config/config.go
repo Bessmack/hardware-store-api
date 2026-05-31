@@ -184,6 +184,7 @@ func Load() (*Config, error) {
 			FromName: getEnv("SMTP_FROM_NAME", "Hardware Store"),
 		},
 		Geo: GeoConfig{
+			PhotonBaseURL:      getEnv("PHOTON_BASE_URL", "https://photon.komoot.io"),
 			NominatimBaseURL:   getEnv("NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org"),
 			NominatimUserAgent: getEnv("NOMINATIM_USER_AGENT", "HardwareStoreApp/1.0"),
 			OpenCageAPIKey:     getEnv("OPENCAGE_API_KEY", ""),
