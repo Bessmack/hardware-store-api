@@ -11,7 +11,11 @@ import (
 
 // locationTTL is how long a customer's detected location stays cached.
 // After this, the next app load re-captures GPS automatically.
-const locationTTL = 4 * time.Hour
+// LocationTTL returns the cache duration as a time.Duration.
+// Populated from cfg.Rules.LocationCacheTTLHours in main.go.
+// Kept as a package-level var so NewLocationService can accept it without
+// changing the signature every time a config field is added.
+var LocationTTL = 4 * time.Hour // default; overridden in main.go
 
 // LocationSource indicates how the location was captured.
 type LocationSource string
@@ -88,7 +92,7 @@ func (s *LocationService) Save(ctx context.Context, key string, lat, lng float64
 		Address:   address,
 		Source:    source,
 		CachedAt:  now,
-		ExpiresAt: now.Add(locationTTL),
+		ExpiresAt: now.Add(LocationTTL),
 	}
 
 	if nearest := FindNearestStore(stores, lat, lng); nearest != nil {
@@ -101,7 +105,7 @@ func (s *LocationService) Save(ctx context.Context, key string, lat, lng float64
 		return nil, fmt.Errorf("location: failed to marshal: %w", err)
 	}
 
-	if err := s.cache.Set(ctx, key, string(data), locationTTL); err != nil {
+	if err := s.cache.Set(ctx, key, string(data), LocationTTL); err != nil {
 		return nil, fmt.Errorf("location: failed to write to cache: %w", err)
 	}
 

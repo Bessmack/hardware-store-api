@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Bessmack/hardware-store-api/internal/config"
+	"github.com/Bessmack/hardware-store-api/internal/geo"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
 	"github.com/Bessmack/hardware-store-api/pkg/cache"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
@@ -62,6 +63,11 @@ func main() {
 	_ = cacheClient
 	_ = storageClient
 
+	// ── 6. Apply configurable business rules ──────────────────────────────────
+	// Override package-level defaults with values from .env so behaviour
+	// can be tuned without recompiling.
+	geo.LocationTTL = time.Duration(cfg.Rules.LocationCacheTTLHours) * time.Hour
+
 	// ── 6. Repositories ───────────────────────────────────────────────────────
 	// TODO: initialise repositories here as domains are built
 	// e.g. userRepo := users.NewRepository(db)
@@ -75,17 +81,13 @@ func main() {
 	// e.g. userHandler := users.NewHandler(userService)
 
 	// ── 9. Router ─────────────────────────────────────────────────────────────
-	router := http.NewServeMux()
-	router.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	// TODO: wire up router
+	// router := server.NewRouter(cfg, userHandler, ...)
 
 	// ── 10. HTTP Server ───────────────────────────────────────────────────────
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%s", cfg.App.Port),
-		Handler:      router,
+		Addr: fmt.Sprintf(":%s", cfg.App.Port),
+		// Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
