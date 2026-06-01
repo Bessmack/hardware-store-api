@@ -112,6 +112,7 @@ type GeoConfig struct {
 	NominatimBaseURL  string
 	NominatimUserAgent string
 	OpenCageAPIKey    string // optional fallback — leave empty to skip
+	PhotonBaseURL      string // optional fallback geocoder with no API key required
 }
 
 // CloudinaryConfig holds credentials for POD photo storage.
