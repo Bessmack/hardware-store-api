@@ -9,7 +9,7 @@ import (
 )
 
 // Config holds all configuration loaded from environment variables.
-// Access it everywhere via a single instance initialised in main.go.
+// One instance is created in main.go and passed to every component that needs it.
 type Config struct {
 	App        AppConfig
 	Database   DatabaseConfig
@@ -21,15 +21,17 @@ type Config struct {
 	Email      EmailConfig
 	Geo        GeoConfig
 	Cloudinary CloudinaryConfig
-	Dispute    DisputeConfig
+	Rules      RulesConfig
 }
+
+// ── Section structs ───────────────────────────────────────────────────────────
 
 type AppConfig struct {
 	Name    string
 	LogoURL string
 	Env     string
 	Port    string
-	URL     string // frontend URL — used for CORS and email redirect links
+	URL     string // frontend origin — used for CORS and email redirect links
 }
 
 type DatabaseConfig struct {
@@ -47,15 +49,15 @@ type JWTConfig struct {
 
 // MpesaConfig holds Daraja API credentials.
 //
-// ConsumerKey / ConsumerSecret: used to generate short-lived access tokens
-// from Safaricom's OAuth endpoint. These are global — one pair per application.
+// ConsumerKey/Secret  Global credentials for generating OAuth access tokens.
+//                     One pair per application — not per store.
 //
-// Shortcode / Passkey: default credentials used when a store has not yet been
-// configured with its own in the stores table. Once a store's own shortcode
-// and passkey are set, those take precedence over these defaults.
+// Shortcode/Passkey   Default STK push credentials used when a store has not
+//                     yet been configured with its own in the stores table.
+//                     Once a store's own credentials are set, those take over.
 //
-// CallbackURL: the public HTTPS endpoint that Safaricom posts payment results to.
-// In development, expose your local server with ngrok.
+// CallbackURL         Public HTTPS endpoint Safaricom posts payment results to.
+//                     In development, use ngrok: ngrok http 8080
 type MpesaConfig struct {
 	ConsumerKey    string
 	ConsumerSecret string
@@ -73,12 +75,12 @@ type AirtelConfig struct {
 
 // WhatsAppConfig holds Green API credentials.
 // Sign up at https://green-api.com — free tier available.
-// Fields:
-//   - APIURL:      base URL for all API calls
-//   - MediaURL:    base URL for sending media (images, PDFs)
-//   - IDInstance:  your instance ID shown on the Green API dashboard
-//   - APIToken:    authentication token
-//   - Phone:       the WhatsApp number messages are sent from (no + prefix)
+//
+//	APIURL      base URL for all text/message API calls
+//	MediaURL    base URL for sending media (images, PDFs)
+//	IDInstance  instance ID shown on the Green API dashboard
+//	APIToken    authentication token (treat like a password)
+//	Phone       sender number — no + prefix (e.g. 254712345678)
 type WhatsAppConfig struct {
 	APIURL     string
 	MediaURL   string
@@ -88,7 +90,7 @@ type WhatsAppConfig struct {
 }
 
 // EmailConfig holds SMTP credentials for transactional email.
-// Works with Gmail App Passwords, Outlook, or any SMTP relay.
+// Works with Gmail App Passwords, Outlook, or any standard SMTP relay.
 type EmailConfig struct {
 	Host     string
 	Port     int
@@ -97,47 +99,69 @@ type EmailConfig struct {
 	FromName string
 }
 
-// GeoConfig holds configuration for geocoding delivery addresses.
-// The system uses Nominatim (OpenStreetMap) as the primary geocoder — free,
-// no API key required. OpenCage is an optional fallback for higher volume.
+// GeoConfig holds configuration for all three geocoding providers.
+// Each provider has a distinct role:
 //
-// Nominatim rules:
-//   - Max 1 request/second (enforced by rate limiter in the geo package)
-//   - UserAgent must identify your application (required by Nominatim policy)
-//   - Free to use in production
+//	Photon      address autocomplete / search-as-you-type  (no key required)
+//	Nominatim   text address -> lat/lng                    (no key, max 1 req/sec)
+//	OpenCage    lat/lng -> readable address (reverse)      (optional, 2,500/day free)
 //
-// Distance calculation (store routing, delivery fees) uses the Haversine
-// formula internally — no API calls needed.
+// Browser Geolocation API (GPS on app open) runs on the device — no config needed.
+// All distance math (nearest store, delivery fees) uses Haversine — no API calls.
 type GeoConfig struct {
-	NominatimBaseURL  string
-	NominatimUserAgent string
-	OpenCageAPIKey    string // optional fallback — leave empty to skip
-	PhotonBaseURL      string // optional fallback geocoder with no API key required
+	PhotonBaseURL      string
+	NominatimBaseURL   string
+	NominatimUserAgent string // required by Nominatim policy — identifies your app
+	OpenCageAPIKey     string // leave empty to fall back to Nominatim for reverse geocoding
 }
 
-// CloudinaryConfig holds credentials for POD photo storage.
-// Two folders are used:
-//   - delivery-photos/  → configure a 30-day auto-delete rule in Cloudinary dashboard
-//   - dispute-evidence/ → permanent, no deletion rule
+// CloudinaryConfig holds credentials for proof-of-delivery photo storage.
+// Two folders are used — configure their lifecycle rules in the Cloudinary dashboard:
+//
+//	delivery-photos/   auto-delete after 30 days  (Settings > Upload > Lifecycle rules)
+//	dispute-evidence/  no deletion rule            (kept until manually cleared)
 type CloudinaryConfig struct {
 	CloudName string
 	APIKey    string
 	APISecret string
 }
 
-type DisputeConfig struct {
-	WindowHours int
+// RulesConfig holds business rules that may need tuning without code changes.
+// All values have sensible defaults and can be overridden in .env.
+type RulesConfig struct {
+	// LocationCacheTTLHours is how long a customer's GPS location stays cached
+	// in Redis before the app re-captures it on the next visit. Default: 4.
+	LocationCacheTTLHours int
+
+	// PODGPSToleranceMetres is how far the delivery person's GPS can be from
+	// the delivery address and still have their POD submission accepted. Default: 200.
+	PODGPSToleranceMetres int
+
+	// OTPLength is the number of digits in the delivery confirmation OTP
+	// sent to the customer when their order is dispatched. Default: 6.
+	OTPLength int
+
+	// DisputeWindowHours is how many hours after delivery a customer can
+	// raise a dispute. Default: 24.
+	DisputeWindowHours int
 }
 
-// Load reads environment variables (from .env in development, directly in production)
-// and returns a fully populated Config. Panics if any required variable is missing.
-func Load() (*Config, error) {
-	// In production env vars are injected directly — .env file is optional
-	_ = godotenv.Load()
+// ── Loader ────────────────────────────────────────────────────────────────────
 
-	jwtExpiry, _ := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
-	disputeWindow, _ := strconv.Atoi(getEnv("DISPUTE_WINDOW_HOURS", "24"))
-	smtpPort, _ := strconv.Atoi(getEnv("SMTP_PORT", "587"))
+// Load reads environment variables (from .env in development, injected directly
+// in production) and returns a fully populated Config.
+// Panics immediately if any required variable is missing so misconfigurations
+// are caught at startup rather than mid-request.
+func Load() (*Config, error) {
+	_ = godotenv.Load() // .env is optional in production
+
+	// Parse all integer env vars up front
+	jwtExpiry, _         := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
+	smtpPort, _          := strconv.Atoi(getEnv("SMTP_PORT", "587"))
+	locationTTL, _       := strconv.Atoi(getEnv("LOCATION_CACHE_TTL_HOURS", "4"))
+	gpsTolerance, _      := strconv.Atoi(getEnv("POD_GPS_TOLERANCE_METRES", "200"))
+	otpLength, _         := strconv.Atoi(getEnv("OTP_LENGTH", "6"))
+	disputeWindow, _     := strconv.Atoi(getEnv("DISPUTE_WINDOW_HOURS", "24"))
 
 	cfg := &Config{
 		App: AppConfig{
@@ -195,25 +219,30 @@ func Load() (*Config, error) {
 			APIKey:    requireEnv("CLOUDINARY_API_KEY"),
 			APISecret: requireEnv("CLOUDINARY_API_SECRET"),
 		},
-		Dispute: DisputeConfig{
-			WindowHours: disputeWindow,
+		Rules: RulesConfig{
+			LocationCacheTTLHours: locationTTL,
+			PODGPSToleranceMetres: gpsTolerance,
+			OTPLength:             otpLength,
+			DisputeWindowHours:    disputeWindow,
 		},
 	}
 
 	return cfg, nil
 }
 
-// IsDevelopment returns true when running in the development environment.
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// IsDevelopment returns true when APP_ENV=development.
 func (c *Config) IsDevelopment() bool {
 	return c.App.Env == "development"
 }
 
-// IsProduction returns true when running in the production environment.
+// IsProduction returns true when APP_ENV=production.
 func (c *Config) IsProduction() bool {
 	return c.App.Env == "production"
 }
 
-// getEnv returns the value of key or fallback if not set.
+// getEnv returns the value of key or fallback if the variable is not set or empty.
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -222,7 +251,7 @@ func getEnv(key, fallback string) string {
 }
 
 // requireEnv returns the value of key or panics with a clear message if not set.
-// Use for variables that the application cannot function without.
+// Used for variables the application absolutely cannot start without.
 func requireEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
