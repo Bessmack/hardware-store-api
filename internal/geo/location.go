@@ -147,3 +147,29 @@ func LocationKey(userID, sessionID string) string {
 	}
 	return fmt.Sprintf("loc:guest:%s", sessionID)
 }
+
+// MigrateGuestLocation copies a guest session's cached location to the
+// user's key when they log in, then deletes the guest key.
+//
+// Called by the auth handler immediately after a successful login so the
+// customer's nearest-store and pricing context carries over without
+// requiring a new GPS capture.
+//
+// A fresh LocationTTL is applied to the user key — they just logged in
+// so a full 4-hour window is appropriate.
+// Non-fatal: if the guest key has already expired, nothing is migrated
+// and the app will capture a fresh location on the next interaction.
+func (s *LocationService) MigrateGuestLocation(ctx context.Context, guestKey, userKey string) {
+	data, err := s.cache.Get(ctx, guestKey)
+	if err != nil {
+		return // guest location already expired or never set — nothing to migrate
+	}
+
+	// Copy to user key with a fresh TTL
+	if err := s.cache.Set(ctx, userKey, data, LocationTTL); err != nil {
+		return
+	}
+
+	// Clean up the guest key
+	_ = s.cache.Delete(ctx, guestKey)
+}

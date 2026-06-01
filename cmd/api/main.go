@@ -9,29 +9,33 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Bessmack/hardware-store-api/internal/auth"
 	"github.com/Bessmack/hardware-store-api/internal/config"
 	"github.com/Bessmack/hardware-store-api/internal/geo"
+	"github.com/Bessmack/hardware-store-api/internal/middleware"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
+	"github.com/Bessmack/hardware-store-api/internal/stores"
+	"github.com/Bessmack/hardware-store-api/internal/users"
 	"github.com/Bessmack/hardware-store-api/pkg/cache"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/Bessmack/hardware-store-api/pkg/logger"
 )
 
 func main() {
-	// ── 1. Config ─────────────────────────────────────────────────────────────
+	// 1. Config
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	// ── 2. Logger ─────────────────────────────────────────────────────────────
+	// 2. Logger
 	logger.Init(cfg.App.Env)
 	l := logger.Get()
 	l.Info().Str("app", cfg.App.Name).Str("env", cfg.App.Env).Msg("starting server")
 
-	// ── 3. Database ───────────────────────────────────────────────────────────
 	ctx := context.Background()
 
+	// 3. Database
 	db, err := database.Connect(ctx, cfg.Database.URL)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to connect to database")
@@ -39,7 +43,7 @@ func main() {
 	defer db.Close()
 	l.Info().Msg("database connected")
 
-	// ── 4. Cache (Redis) ──────────────────────────────────────────────────────
+	// 4. Cache (Redis)
 	cacheClient, err := cache.Connect(ctx, cfg.Redis.URL)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to connect to redis")
@@ -47,7 +51,7 @@ func main() {
 	defer cacheClient.Close()
 	l.Info().Msg("cache connected")
 
-	// ── 5. Storage (Cloudinary) ───────────────────────────────────────────────
+	// 5. Storage (Cloudinary)
 	storageClient, err := cloudstorage.New(cloudstorage.Config{
 		CloudName: cfg.Cloudinary.CloudName,
 		APIKey:    cfg.Cloudinary.APIKey,
@@ -57,43 +61,69 @@ func main() {
 		l.Fatal().Err(err).Msg("failed to initialise cloudinary")
 	}
 	l.Info().Msg("storage connected")
+	_ = storageClient // used by pod domain (wired when built)
 
-	// Suppress unused variable warnings until domains are wired in
-	_ = db
-	_ = cacheClient
-	_ = storageClient
-
-	// ── 6. Apply configurable business rules ──────────────────────────────────
+	// 6. Apply configurable business rules
 	// Override package-level defaults with values from .env so behaviour
 	// can be tuned without recompiling.
 	geo.LocationTTL = time.Duration(cfg.Rules.LocationCacheTTLHours) * time.Hour
 
-	// ── 6. Repositories ───────────────────────────────────────────────────────
-	// TODO: initialise repositories here as domains are built
-	// e.g. userRepo := users.NewRepository(db)
+	// 7. Repositories
+	userRepo  := users.NewRepository(db)
+	storeRepo := stores.NewRepository(db)
 
-	// ── 7. Services ───────────────────────────────────────────────────────────
-	// TODO: initialise services here
-	// e.g. userService := users.NewService(userRepo)
+	// 8. Services
+	userService  := users.NewService(userRepo)
+	storeService := stores.NewService(storeRepo)
 
-	// ── 8. Handlers ───────────────────────────────────────────────────────────
-	// TODO: initialise handlers here
-	// e.g. userHandler := users.NewHandler(userService)
+	reverseGeocoder := geo.NewReverseGeocoder(
+		cfg.Geo.OpenCageAPIKey,
+		cfg.Geo.NominatimBaseURL,
+		cfg.Geo.NominatimUserAgent,
+	)
+	// storeService implements geo.StoreLister - no circular import
+	locationService := geo.NewLocationService(cacheClient, reverseGeocoder, storeService)
+	geocoder        := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
+	autocompleter   := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
 
-	// ── 9. Router ─────────────────────────────────────────────────────────────
-	// TODO: wire up router
-	// router := server.NewRouter(cfg, userHandler, ...)
+	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
+		JWTSecret:           cfg.JWT.Secret,
+		AccessExpiryMinutes: cfg.JWT.AccessExpiryMinutes,
+		RefreshExpiryDays:   cfg.JWT.RefreshExpiryDays,
+	})
 
-	// ── 10. HTTP Server ───────────────────────────────────────────────────────
+	// 9. Middleware
+	authMw       := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
+	storeScopeMw := middleware.NewStoreScopeMiddleware(userService)
+
+	// 10. Handlers
+	authHandler  := auth.NewHandler(authService, locationService)
+	userHandler  := users.NewHandler(userService)
+	storeHandler := stores.NewHandler(storeService)
+	geoHandler   := geo.NewHandler(locationService, autocompleter, geocoder)
+
+	// Suppress unused variable warnings for handlers not yet wired into routes
+	_ = authMw
+	_ = storeScopeMw
+	_ = authHandler
+	_ = userHandler
+	_ = storeHandler
+	_ = geoHandler
+
+	// 11. Router
+	// TODO: wire up server/routes.go as domains are added
+	// router := server.NewRouter(cfg, authMw, storeScopeMw, authHandler, ...)
+
+	// 12. HTTP Server
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%s", cfg.App.Port),
-		// Handler:      router,
+		// Handler: router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// ── 11. Graceful shutdown ─────────────────────────────────────────────────
+	// 13. Graceful shutdown
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -104,11 +134,9 @@ func main() {
 		}
 	}()
 
-	// Block until SIGINT or SIGTERM
 	<-shutdownCtx.Done()
 	l.Info().Msg("shutdown signal received")
 
-	// Give in-flight requests 10 seconds to finish
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

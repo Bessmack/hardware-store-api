@@ -42,9 +42,16 @@ type RedisConfig struct {
 	URL string
 }
 
+// JWTConfig controls token lifetimes.
+//
+// Two-token strategy:
+//   - Access token  short-lived (30 min default), sent with every API request
+//   - Refresh token long-lived (7 days default), stored in Redis, used only to
+//     obtain a new access token; rotated on every use
 type JWTConfig struct {
-	Secret      string
-	ExpiryHours int
+	Secret              string
+	AccessExpiryMinutes int
+	RefreshExpiryDays   int
 }
 
 // MpesaConfig holds Daraja API credentials.
@@ -156,7 +163,8 @@ func Load() (*Config, error) {
 	_ = godotenv.Load() // .env is optional in production
 
 	// Parse all integer env vars up front
-	jwtExpiry, _         := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
+	jwtAccessExpiry, _   := strconv.Atoi(getEnv("JWT_ACCESS_EXPIRY_MINUTES", "30"))
+	jwtRefreshExpiry, _  := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "7"))
 	smtpPort, _          := strconv.Atoi(getEnv("SMTP_PORT", "587"))
 	locationTTL, _       := strconv.Atoi(getEnv("LOCATION_CACHE_TTL_HOURS", "4"))
 	gpsTolerance, _      := strconv.Atoi(getEnv("POD_GPS_TOLERANCE_METRES", "200"))
@@ -179,7 +187,8 @@ func Load() (*Config, error) {
 		},
 		JWT: JWTConfig{
 			Secret:      requireEnv("JWT_SECRET"),
-			ExpiryHours: jwtExpiry,
+			AccessExpiryMinutes: jwtAccessExpiry,
+			RefreshExpiryDays:   jwtRefreshExpiry,
 		},
 		Mpesa: MpesaConfig{
 			ConsumerKey:    getEnv("MPESA_CONSUMER_KEY", ""),
