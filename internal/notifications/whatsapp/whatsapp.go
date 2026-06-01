@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/Bessmack/hardware-store-api/internal/notifications"
 )
 
 // Provider implements the notifications.Provider interface using Green API.
@@ -44,6 +46,16 @@ func New(cfg Config) *Provider {
 // Name satisfies the notifications.Provider interface.
 func (p *Provider) Name() string {
 	return "whatsapp"
+}
+
+// Send satisfies the notifications.Provider interface.
+// Delivers the notification Body as a WhatsApp text message.
+// The Phone field must be in international format without + (e.g. 254712345678).
+func (p *Provider) Send(n notifications.Notification) error {
+	if n.Phone == "" || n.Body == "" {
+		return nil // nothing to send
+	}
+	return p.SendText(n.Phone, n.Body)
 }
 
 // SendText sends a plain text WhatsApp message to the given phone number.

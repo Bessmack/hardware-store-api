@@ -13,6 +13,9 @@ import (
 	"github.com/Bessmack/hardware-store-api/internal/config"
 	"github.com/Bessmack/hardware-store-api/internal/geo"
 	"github.com/Bessmack/hardware-store-api/internal/middleware"
+	"github.com/Bessmack/hardware-store-api/internal/notifications"
+	notifEmail "github.com/Bessmack/hardware-store-api/internal/notifications/email"
+	notifWhatsApp "github.com/Bessmack/hardware-store-api/internal/notifications/whatsapp"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
 	"github.com/Bessmack/hardware-store-api/internal/stores"
 	"github.com/Bessmack/hardware-store-api/internal/users"
@@ -91,6 +94,25 @@ func main() {
 		AccessExpiryMinutes: cfg.JWT.AccessExpiryMinutes,
 		RefreshExpiryDays:   cfg.JWT.RefreshExpiryDays,
 	})
+
+	// Notifications registry — register every channel; fan-out happens in service
+	notifRegistry := notifications.NewRegistry()
+	notifRegistry.Register(notifWhatsApp.New(notifWhatsApp.Config{
+		APIURL:     cfg.WhatsApp.APIURL,
+		MediaURL:   cfg.WhatsApp.MediaURL,
+		IDInstance: cfg.WhatsApp.IDInstance,
+		APIToken:   cfg.WhatsApp.APIToken,
+		Phone:      cfg.WhatsApp.Phone,
+	}))
+	notifRegistry.Register(notifEmail.New(notifEmail.Config{
+		Host:     cfg.Email.Host,
+		Port:     cfg.Email.Port,
+		User:     cfg.Email.User,
+		Password: cfg.Email.Password,
+		FromName: cfg.Email.FromName,
+	}))
+	notifService := notifications.NewService(notifRegistry)
+	_ = notifService // injected into order, pod domains when built
 
 	// 9. Middleware
 	authMw       := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/smtp"
+
+	"github.com/Bessmack/hardware-store-api/internal/notifications"
 )
 
 // Provider implements the notifications.Provider interface using plain SMTP.
@@ -42,9 +44,23 @@ func (p *Provider) Name() string {
 	return "email"
 }
 
-// Send delivers an email to the given address.
+// Send satisfies the notifications.Provider interface.
+// Uses HTMLBody if set, otherwise falls back to a simple text-wrapped Body.
+func (p *Provider) Send(n notifications.Notification) error {
+	if n.Email == "" {
+		return nil // no email address — skip silently
+	}
+	body := n.HTMLBody
+	if body == "" {
+		// Wrap plain text in minimal HTML so MIME type is consistent
+		body = "<html><body><p>" + n.Body + "</p></body></html>"
+	}
+	return p.SendRaw(n.Email, n.Subject, body)
+}
+
+// SendRaw delivers an email to the given address.
 // subject and htmlBody are both required.
-func (p *Provider) Send(to, subject, htmlBody string) error {
+func (p *Provider) SendRaw(to, subject, htmlBody string) error {
 	auth := smtp.PlainAuth("", p.user, p.password, p.host)
 
 	from := fmt.Sprintf("%s <%s>", p.fromName, p.user)
