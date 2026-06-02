@@ -38,7 +38,7 @@ func (r *Repository) Upsert(ctx context.Context, storeID string, req UpsertReque
 			updated_by     = EXCLUDED.updated_by
 		RETURNING id, store_id, product_id, price_kes, stock_quantity,
 		          low_stock_alert, is_available, updated_at, COALESCE(updated_by::text,'')
-	`, storeID, req.ProductID, req.PriceKES, req.StockQuantity,
+	`, storeID, req.ProductID, req.Price, req.StockQuantity,
 		lowStockAlert, req.IsAvailable, updatedBy)
 
 	return scanInventory(row)
@@ -70,7 +70,7 @@ func (r *Repository) UpdatePrice(ctx context.Context, storeID, productID string,
 		WHERE store_id = $3 AND product_id = $4
 		RETURNING id, store_id, product_id, price_kes, stock_quantity,
 		          low_stock_alert, is_available, updated_at, COALESCE(updated_by::text,'')
-	`, req.PriceKES, updatedBy, storeID, productID)
+	`, req.Price, updatedBy, storeID, productID)
 
 	inv, err := scanInventory(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -125,7 +125,7 @@ func (r *Repository) ListByStore(ctx context.Context, storeID string) ([]Invento
 		var inv InventoryResponse
 		if err := rows.Scan(
 			&inv.ProductID, &inv.ProductName,
-			&inv.PriceKES, &inv.StockQuantity, &inv.LowStockAlert,
+			&inv.Price, &inv.StockQuantity, &inv.LowStockAlert,
 			&inv.IsAvailable, &inv.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("inventory: scan error: %w", err)
@@ -156,7 +156,7 @@ func (r *Repository) GetPriceHistory(ctx context.Context, storeID, productID str
 	for rows.Next() {
 		var h PriceHistoryResponse
 		if err := rows.Scan(
-			&h.OldPriceKES, &h.NewPriceKES,
+			&h.OldPrice, &h.NewPrice,
 			&h.ChangedBy, &h.ChangedAt, &h.Reason,
 		); err != nil {
 			return nil, fmt.Errorf("inventory: price history scan error: %w", err)
@@ -172,7 +172,7 @@ func scanInventory(row pgx.Row) (*StoreInventory, error) {
 	var inv StoreInventory
 	if err := row.Scan(
 		&inv.ID, &inv.StoreID, &inv.ProductID,
-		&inv.PriceKES, &inv.StockQuantity, &inv.LowStockAlert,
+		&inv.Price, &inv.StockQuantity, &inv.LowStockAlert,
 		&inv.IsAvailable, &inv.UpdatedAt, &inv.UpdatedBy,
 	); err != nil {
 		return nil, err
