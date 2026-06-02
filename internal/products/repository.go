@@ -179,7 +179,7 @@ func (r *Repository) GetAllStorePrices(ctx context.Context, productID string) ([
 	var result []StorePriceEntry
 	for rows.Next() {
 		var e StorePriceEntry
-		if err := rows.Scan(&e.StoreID, &e.StoreName, &e.County, &e.PriceKES, &e.InStock); err != nil {
+		if err := rows.Scan(&e.StoreID, &e.StoreName, &e.County, &e.Price, &e.InStock); err != nil {
 			return nil, fmt.Errorf("products: scan store price error: %w", err)
 		}
 		result = append(result, e)
@@ -211,7 +211,7 @@ func scanProductWithInventory(row pgx.Row, p *ProductWithInventory) error {
 		&p.WeightKg, &p.LengthCm, &p.WidthCm, &p.HeightCm,
 		&p.ConstraintType, &p.MinVehicleType,
 		&images, &p.IsActive, &p.CreatedAt, &p.UpdatedAt, &p.UpdatedBy,
-		&p.PriceKES, &p.StockQuantity, &p.LowStockAlert, &p.IsAvailable,
+		&p.Price, &p.StockQuantity, &p.LowStockAlert, &p.IsAvailable,
 	)
 }
 
