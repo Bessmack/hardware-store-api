@@ -15,6 +15,7 @@ type Store struct {
 	Longitude        float64   `db:"longitude"`
 	Phone            string    `db:"phone"`
 	Email            string    `db:"email"`
+	Currency         string    `db:"currency"`          // ISO 4217 e.g. "KES", "USD", "TZS"
 	MpesaPaybill     string    `db:"mpesa_paybill"`
 	MpesaAccountRef  string    `db:"mpesa_account_ref"`
 	MpesaShortcode   string    `db:"mpesa_shortcode"`
@@ -36,6 +37,8 @@ type CreateStoreRequest struct {
 	Longitude float64 `json:"longitude" validate:"required"`
 	Phone     string  `json:"phone"`
 	Email     string  `json:"email"     validate:"omitempty,email"`
+	// Currency is the ISO 4217 code for all prices at this store. Defaults to KES.
+	Currency string `json:"currency" validate:"omitempty,len=3"`
 }
 
 // UpdateStoreRequest is used by superadmin to update basic store information.
@@ -47,7 +50,8 @@ type UpdateStoreRequest struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	Phone     string  `json:"phone"`
-	Email     string  `json:"email" validate:"omitempty,email"`
+	Email     string  `json:"email"     validate:"omitempty,email"`
+	Currency  string  `json:"currency"  validate:"omitempty,len=3"`
 }
 
 // UpdateCredentialsRequest is used by superadmin to configure a store's
@@ -73,6 +77,7 @@ type StorePublicResponse struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	Phone     string  `json:"phone,omitempty"`
+	Currency  string  `json:"currency"`
 }
 
 // StoreStaffResponse is what admins and superadmin see.
@@ -92,6 +97,7 @@ type StoreStaffResponse struct {
 	MpesaShortcode   string    `json:"mpesa_shortcode,omitempty"`
 	// MpesaPasskey intentionally absent — never serialized
 	AirtelMerchantID string    `json:"airtel_merchant_id,omitempty"`
+	Currency         string    `json:"currency"`
 	IsActive         bool      `json:"is_active"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -109,6 +115,7 @@ func ToPublicResponse(s *Store) StorePublicResponse {
 		Latitude:  s.Latitude,
 		Longitude: s.Longitude,
 		Phone:     s.Phone,
+		Currency:  s.Currency,
 	}
 }
 
@@ -128,6 +135,7 @@ func ToStaffResponse(s *Store) StoreStaffResponse {
 		MpesaAccountRef:  s.MpesaAccountRef,
 		MpesaShortcode:   s.MpesaShortcode,
 		AirtelMerchantID: s.AirtelMerchantID,
+		Currency:         s.Currency,
 		IsActive:         s.IsActive,
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
