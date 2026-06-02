@@ -27,10 +27,8 @@ type VehicleType string
 
 const (
 	VehicleBike  VehicleType = "bike"
-	VehiclePickUp   VehicleType = "pickup"
-	VehicleMiniTruck VehicleType = "mini_truck"
+	VehicleVan   VehicleType = "van"
 	VehicleTruck VehicleType = "truck"
-	VehiclePrime VehicleType = "prime_mover" // for extra-large orders that need a prime truck
 )
 
 // ── Core model ────────────────────────────────────────────────────────────────
@@ -59,7 +57,8 @@ type Product struct {
 // This is the internal model — never serialized directly.
 type ProductWithInventory struct {
 	Product
-	PriceKES       float64 `db:"price_kes"`
+	Price          float64 `db:"price"`
+	Currency       string  `db:"currency"`
 	StockQuantity  int     `db:"stock_quantity"`
 	LowStockAlert  int     `db:"low_stock_alert"`
 	IsAvailable    bool    `db:"is_available"`
@@ -104,7 +103,8 @@ type ProductCustomerResponse struct {
 	Description    string         `json:"description,omitempty"`
 	Category       string         `json:"category"`
 	Images         []string       `json:"images"`
-	PriceKES       float64        `json:"price_kes"`
+	Price          float64        `json:"price"`
+	Currency       string         `json:"currency"`
 	InStock        bool           `json:"in_stock"`
 	// True when stock is low (below low_stock_alert threshold) — no number revealed.
 	LimitedAvailability bool      `json:"limited_availability"`
@@ -124,7 +124,8 @@ type ProductStaffResponse struct {
 	ConstraintType ConstraintType `json:"constraint_type"`
 	MinVehicleType VehicleType    `json:"min_vehicle_type,omitempty"`
 	Images         []string       `json:"images"`
-	PriceKES       float64        `json:"price_kes"`
+	Price          float64        `json:"price"`
+	Currency       string         `json:"currency"`
 	StockQuantity  int            `json:"stock_quantity"`
 	LowStockAlert  int            `json:"low_stock_alert"`
 	IsAvailable    bool           `json:"is_available"`
@@ -138,7 +139,8 @@ type StorePriceEntry struct {
 	StoreID    string  `json:"store_id"`
 	StoreName  string  `json:"store_name"`
 	County     string  `json:"county"`
-	PriceKES   float64 `json:"price_kes"`
+	Price      float64 `json:"price"`
+	Currency   string  `json:"currency"`
 	InStock    bool    `json:"in_stock"`
 }
 
@@ -153,7 +155,8 @@ func ToCustomerResponse(p ProductWithInventory) ProductCustomerResponse {
 		Description:         p.Description,
 		Category:            p.Category,
 		Images:              p.Images,
-		PriceKES:            p.PriceKES,
+		Price:               p.Price,
+		Currency:            p.Currency,
 		InStock:             p.StockQuantity > 0 && p.IsAvailable,
 		LimitedAvailability: p.StockQuantity > 0 && p.StockQuantity <= p.LowStockAlert,
 	}
@@ -173,7 +176,8 @@ func ToStaffResponse(p ProductWithInventory) ProductStaffResponse {
 		ConstraintType: p.ConstraintType,
 		MinVehicleType: p.MinVehicleType,
 		Images:         p.Images,
-		PriceKES:       p.PriceKES,
+		Price:          p.Price,
+		Currency:       p.Currency,
 		StockQuantity:  p.StockQuantity,
 		LowStockAlert:  p.LowStockAlert,
 		IsAvailable:    p.IsAvailable,
