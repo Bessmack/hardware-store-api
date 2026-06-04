@@ -22,6 +22,7 @@ import (
 	"github.com/Bessmack/hardware-store-api/pkg/cache"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/Bessmack/hardware-store-api/pkg/logger"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -117,6 +118,21 @@ func main() {
 	// 9. Middleware
 	authMw       := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
 	storeScopeMw := middleware.NewStoreScopeMiddleware(userService)
+
+	// Build a raw *redis.Client for the rate limiter
+	// (the cache package wraps it, but redis_rate needs the unwrapped client)
+	redisOpts, _ := redis.ParseURL(cfg.Redis.URL)
+	redisRaw     := redis.NewClient(redisOpts)
+	defer redisRaw.Close()
+
+	rateLimiter := middleware.NewRateLimiter(redisRaw)
+	corsMw      := middleware.CORS(middleware.CORSConfig{
+		AppURL:        cfg.App.URL,
+		IsDevelopment: cfg.IsDevelopment(),
+	})
+
+	_ = rateLimiter // wired in server/routes.go
+	_ = corsMw      // wired in server/routes.go
 
 	// 10. Handlers
 	authHandler  := auth.NewHandler(authService, locationService)

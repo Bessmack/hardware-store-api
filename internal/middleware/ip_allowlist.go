@@ -84,6 +84,11 @@ func allowlist(allowed map[string]bool, name string) func(http.Handler) http.Han
 				return
 			}
 
+			if name == "" {
+				response.BadRequest(w, "server misconfiguration: unknown allowlist")
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
