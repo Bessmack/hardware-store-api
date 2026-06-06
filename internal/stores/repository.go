@@ -23,8 +23,8 @@ func NewRepository(db *database.DB) *Repository {
 // Create inserts a new store and returns the created record.
 func (r *Repository) Create(ctx context.Context, req CreateStoreRequest) (*Store, error) {
 	row := r.db.Pool.QueryRow(ctx, `
-		INSERT INTO stores (name, address, county, latitude, longitude, phone, email)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO stores (name, address, county, latitude, longitude, phone, email, currency)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING
 			id, name,
 			COALESCE(address, ''), COALESCE(county, ''),
@@ -33,11 +33,13 @@ func (r *Repository) Create(ctx context.Context, req CreateStoreRequest) (*Store
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
 			COALESCE(airtel_merchant_id, ''),
+			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 	`,
 		req.Name, nullIfEmpty(req.Address), nullIfEmpty(req.County),
 		req.Latitude, req.Longitude,
 		nullIfEmpty(req.Phone), nullIfEmpty(req.Email),
+		nullIfEmpty(req.Currency),
 	)
 
 	return scanStore(row)
@@ -54,6 +56,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*Store, error) {
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
 			COALESCE(airtel_merchant_id, ''),
+			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 		FROM stores WHERE id = $1
 	`, id)
@@ -76,8 +79,9 @@ func (r *Repository) Update(ctx context.Context, id string, req UpdateStoreReque
 			latitude  = CASE WHEN $4 != 0 THEN $4 ELSE latitude END,
 			longitude = CASE WHEN $5 != 0 THEN $5 ELSE longitude END,
 			phone     = COALESCE(NULLIF($6, ''), phone),
-			email     = COALESCE(NULLIF($7, ''), email)
-		WHERE id = $8
+			email     = COALESCE(NULLIF($7, ''), email),
+			currency  = COALESCE(NULLIF($8, ''), currency)
+		WHERE id = $9
 		RETURNING
 			id, name,
 			COALESCE(address, ''), COALESCE(county, ''),
@@ -86,12 +90,13 @@ func (r *Repository) Update(ctx context.Context, id string, req UpdateStoreReque
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
 			COALESCE(airtel_merchant_id, ''),
+			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 	`,
 		req.Name, req.Address, req.County,
 		req.Latitude, req.Longitude,
 		req.Phone, req.Email,
-		id,
+		req.Currency, id,
 	)
 
 	s, err := scanStore(row)
@@ -120,6 +125,7 @@ func (r *Repository) UpdateCredentials(ctx context.Context, id string, req Updat
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
 			COALESCE(airtel_merchant_id, ''),
+			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 	`,
 		req.MpesaPaybill, req.MpesaAccountRef,
@@ -170,6 +176,7 @@ func (r *Repository) list(ctx context.Context, activeOnly, includeInactive bool)
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
 			COALESCE(airtel_merchant_id, ''),
+			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 		FROM stores
 	`
@@ -236,6 +243,7 @@ func scanStore(row pgx.Row) (*Store, error) {
 		&s.MpesaPaybill, &s.MpesaAccountRef,
 		&s.MpesaShortcode, &s.MpesaPasskey,
 		&s.AirtelMerchantID,
+		&s.Currency,
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -252,6 +260,7 @@ func scanStoreFromRows(rows pgx.Rows) (*Store, error) {
 		&s.MpesaPaybill, &s.MpesaAccountRef,
 		&s.MpesaShortcode, &s.MpesaPasskey,
 		&s.AirtelMerchantID,
+		&s.Currency,
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -264,4 +273,20 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+// ── delivery.StoreCoordinateReader implementation ────────────────────────────
+
+// GetStoreCoordinates satisfies the delivery.StoreCoordinateReader interface.
+// Returns the store's name, lat/lng, and currency for delivery quote calculation.
+func (r *Repository) GetStoreCoordinates(ctx context.Context, storeID string) (name string, lat, lng float64, currency string, err error) {
+	row := r.db.Pool.QueryRow(ctx,
+		`SELECT name, latitude, longitude, COALESCE(currency, 'KES')
+		 FROM stores WHERE id = $1 AND is_active = TRUE`,
+		storeID,
+	)
+	if scanErr := row.Scan(&name, &lat, &lng, &currency); scanErr != nil {
+		return "", 0, 0, "", fmt.Errorf("stores: store not found: %w", scanErr)
+	}
+	return name, lat, lng, currency, nil
 }
