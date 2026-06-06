@@ -8,7 +8,13 @@ import (
 // ── Vehicle determination ─────────────────────────────────────────────────────
 
 // vehicleHierarchy ranks vehicle types for comparison.
-var vehicleHierarchy = map[string]int{"bike": 1, "van": 2, "truck": 3}
+var vehicleHierarchy = map[string]int{
+	"bike":        1,
+	"pickup":      2,
+	"mini-truck":  3,
+	"truck":       4,
+	"prime-mover": 5,
+}
 
 // VehicleResult holds the required vehicle and the human-readable reason.
 type VehicleResult struct {
@@ -75,21 +81,29 @@ func DetermineVehicle(items []CartItemForVehicle, weightThresholds WeightThresho
 	return VehicleResult{VehicleType: required, Reason: reason}
 }
 
-// WeightThresholds holds the max weight per vehicle, loaded from delivery_rates.
+// WeightThresholds holds the max cargo weight per vehicle type.
+// Loaded from delivery_rates at runtime so changes in the dashboard
+// are picked up without redeploying.
 type WeightThresholds struct {
-	BikeMaxKg float64 // default 30
-	VanMaxKg  float64 // default 500
-	// Anything above VanMaxKg requires truck
+	BikeMaxKg       float64 // default  130 kg
+	PickupMaxKg     float64 // default 2000 kg
+	MiniTruckMaxKg  float64 // default 5000 kg
+	TruckMaxKg      float64 // default 11000 kg
+	// prime-mover: above TruckMaxKg AND distance >= 5 km (enforced in delivery service)
 }
 
 func vehicleForWeight(kg float64, t WeightThresholds) string {
 	switch {
 	case kg <= t.BikeMaxKg:
 		return "bike"
-	case kg <= t.VanMaxKg:
-		return "van"
-	default:
+	case kg <= t.PickupMaxKg:
+		return "pickup"
+	case kg <= t.MiniTruckMaxKg:
+		return "mini-truck"
+	case kg <= t.TruckMaxKg:
 		return "truck"
+	default:
+		return "prime-mover"
 	}
 }
 

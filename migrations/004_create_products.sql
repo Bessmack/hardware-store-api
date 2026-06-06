@@ -27,7 +27,7 @@ CREATE TABLE products (
                                   CHECK (constraint_type IN ('weight', 'dimension', 'hazardous')),
 
     -- Only populated for dimension/hazardous items
-    min_vehicle_type VARCHAR(20)  CHECK (min_vehicle_type IN ('bike', 'van', 'truck')),
+    min_vehicle_type VARCHAR(20)  CHECK (min_vehicle_type IN ('bike', 'pickup', 'mini-truck', 'truck', 'prime-mover')),
 
     -- Array of Cloudinary public IDs (not full URLs — URLs are constructed at serve time)
     images           TEXT[]       NOT NULL DEFAULT '{}',

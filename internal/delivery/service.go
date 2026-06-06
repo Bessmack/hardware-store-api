@@ -46,7 +46,7 @@ func (s *Service) Quote(ctx context.Context, req QuoteRequest) (*QuoteResponse, 
 
 	distanceKm := geo.HaversineDistance(storeLat, storeLng, req.DeliveryLat, req.DeliveryLng)
 
-	vehicles := []string{"bike", "van", "truck"}
+	vehicles := []string{VehicleBike, VehiclePickup, VehicleMiniTruck, VehicleTruck, VehiclePrimeMover}
 	if req.VehicleType != "" {
 		vehicles = []string{req.VehicleType}
 	}
@@ -82,7 +82,21 @@ func (s *Service) buildOption(ctx context.Context, storeID, vehicleType string, 
 		}
 	}
 
-	// Check radius limit
+	// Prime-mover minimum distance — only for long-haul loads
+	if vehicleType == VehiclePrimeMover && distanceKm < PrimeMoverMinKm {
+		return VehicleOption{
+			VehicleType: vehicleType,
+			IsAvailable: false,
+			UnavailableReason: fmt.Sprintf(
+				"Prime mover delivery requires a minimum distance of %.0f km — "+
+					"your delivery is %.1f km away",
+				PrimeMoverMinKm, distanceKm,
+			),
+			Currency: currency,
+		}
+	}
+
+	// Maximum radius check
 	if rate.MaxRadiusKm > 0 && distanceKm > rate.MaxRadiusKm {
 		return VehicleOption{
 			VehicleType: vehicleType,
@@ -151,12 +165,12 @@ func (s *Service) DeleteStoreRate(ctx context.Context, storeID, vehicleType stri
 
 // GetWeightThresholds satisfies the cart.WeightThresholdReader interface,
 // delegating to the repository.
-func (s *Service) GetWeightThresholds(ctx context.Context, storeID string) (bikeMax, vanMax float64, err error) {
+func (s *Service) GetWeightThresholds(ctx context.Context, storeID string) (bikeMax, pickupMax float64, err error) {
 	thresholds, err := s.repo.GetWeightThresholds(ctx, storeID)
 	if err != nil {
 		return 30, 500, nil // safe defaults if lookup fails
 	}
-	return thresholds.BikeMaxKg, thresholds.VanMaxKg, nil
+	return thresholds.BikeMaxKg, thresholds.PickupMaxKg, nil
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -47,6 +47,8 @@ ALTER TABLE orders
     RENAME COLUMN grand_total_kes  TO grand_total;
 
 -- ── 3. Per-store delivery rates ───────────────────────────────────────────────
+-- Vehicle types (from migration 011): bike | pickup | mini-truck | truck | prime-mover
+-- The CHECK constraint on vehicle_type is inherited from migration 011 and unchanged here.
 -- Add store_id (nullable) to delivery_rates.
 -- NULL store_id = global default, used when a store has no specific rate.
 -- A store can override any vehicle type by inserting a row with its store_id.

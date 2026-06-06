@@ -178,7 +178,7 @@ func (s *Service) ValidateCart(ctx context.Context, customerID, sessionID string
 	thresholds, err := s.thresholds.GetWeightThresholds(ctx, storeID)
 	if err != nil {
 		// Fall back to sensible defaults if DB lookup fails
-		thresholds = WeightThresholds{BikeMaxKg: 30, VanMaxKg: 500}
+		thresholds = WeightThresholds{BikeMaxKg: 30, PickupMaxKg: 500}
 	}
 
 	vehicle := DetermineVehicle(vehicleItems, thresholds)
@@ -252,7 +252,7 @@ func (s *Service) buildResponse(ctx context.Context, cart *Cart) (*CartResponse,
 		if err == nil && len(vehicleItems) > 0 {
 			thresholds, err := s.thresholds.GetWeightThresholds(ctx, items[0].StoreID)
 			if err != nil {
-				thresholds = WeightThresholds{BikeMaxKg: 30, VanMaxKg: 500}
+				thresholds = WeightThresholds{BikeMaxKg: 30, PickupMaxKg: 500}
 			}
 			v := DetermineVehicle(vehicleItems, thresholds)
 			resp.RequiredVehicle = v.VehicleType

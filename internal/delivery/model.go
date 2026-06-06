@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+// ── Vehicle type constants ────────────────────────────────────────────────────
+
+const (
+	VehicleBike       = "bike"
+	VehiclePickup     = "pickup"
+	VehicleMiniTruck  = "mini-truck"
+	VehicleTruck      = "truck"
+	VehiclePrimeMover = "prime-mover"
+
+	// PrimeMoverMinKm is the minimum delivery distance for prime-mover orders.
+	// Prime-movers are long-haul vehicles — not economical for short distances.
+	PrimeMoverMinKm = 5.0
+)
+
 // ── Core model ────────────────────────────────────────────────────────────────
 
 // DeliveryRate is one row from the delivery_rates table.
@@ -50,14 +64,16 @@ func EstimateDeliveryMins(vehicleType string, distanceKm float64) int {
 	}
 
 	profiles := map[string]profile{
-		"bike":  {baseMins: 20, minsPerKm: 4},
-		"van":   {baseMins: 30, minsPerKm: 5},
-		"truck": {baseMins: 45, minsPerKm: 7},
+		"bike":        {baseMins: 20, minsPerKm:  4},
+		"pickup":      {baseMins: 30, minsPerKm:  5},
+		"mini-truck":  {baseMins: 45, minsPerKm:  6},
+		"truck":       {baseMins: 60, minsPerKm:  7},
+		"prime-mover": {baseMins: 90, minsPerKm:  9},
 	}
 
 	p, ok := profiles[vehicleType]
 	if !ok {
-		p = profiles["van"] // safe fallback
+		p = profiles["pickup"] // safe fallback
 	}
 
 	raw := p.baseMins + int(distanceKm*p.minsPerKm)

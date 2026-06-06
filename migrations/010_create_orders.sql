@@ -17,7 +17,7 @@ CREATE TABLE orders (
     delivery_address_text TEXT,                      -- NULL for pickup orders
     delivery_lat         DECIMAL(9,6),               -- NULL for pickup orders
     delivery_lng         DECIMAL(9,6),               -- NULL for pickup orders
-    vehicle_type         VARCHAR(20)   CHECK (vehicle_type IN ('bike', 'van', 'truck')),
+    vehicle_type         VARCHAR(20)   CHECK (vehicle_type IN ('bike', 'pickup', 'mini-truck','truck', 'prime-mover')), -- NULL until order is confirmed and vehicle is assigned
     vehicle_reason       TEXT,                       -- shown to customer at checkout
 
     -- ── Pricing (locked at placement) ────────────────────────────────────────

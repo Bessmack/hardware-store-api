@@ -26,9 +26,11 @@ const (
 type VehicleType string
 
 const (
-	VehicleBike  VehicleType = "bike"
-	VehicleVan   VehicleType = "van"
-	VehicleTruck VehicleType = "truck"
+	VehicleBike       VehicleType = "bike"
+	VehiclePickup     VehicleType = "pickup"
+	VehicleMiniTruck  VehicleType = "mini-truck"
+	VehicleTruck      VehicleType = "truck"
+	VehiclePrimeMover VehicleType = "prime-mover"
 )
 
 // ── Core model ────────────────────────────────────────────────────────────────
@@ -75,7 +77,7 @@ type CreateProductRequest struct {
 	WidthCm        float64        `json:"width_cm"`
 	HeightCm       float64        `json:"height_cm"`
 	ConstraintType ConstraintType `json:"constraint_type" validate:"required,oneof=weight dimension hazardous"`
-	MinVehicleType VehicleType    `json:"min_vehicle_type"`
+	MinVehicleType VehicleType    `json:"min_vehicle_type" validate:"omitempty,oneof=bike pickup mini-truck truck prime-mover"`
 	Images         []string       `json:"images"`
 }
 
@@ -88,7 +90,7 @@ type UpdateProductRequest struct {
 	WidthCm        float64        `json:"width_cm"`
 	HeightCm       float64        `json:"height_cm"`
 	ConstraintType ConstraintType `json:"constraint_type" validate:"omitempty,oneof=weight dimension hazardous"`
-	MinVehicleType VehicleType    `json:"min_vehicle_type"`
+	MinVehicleType VehicleType    `json:"min_vehicle_type" validate:"omitempty,oneof=bike pickup mini-truck truck prime-mover"`
 	Images         []string       `json:"images"`
 }
 

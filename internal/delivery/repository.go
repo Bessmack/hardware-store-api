@@ -195,7 +195,7 @@ func (r *Repository) DeleteStoreRate(ctx context.Context, storeID, vehicleType s
 // Returns the max weight the bike and van can carry for the given store,
 // using store-specific rates if they exist, falling back to global defaults.
 func (r *Repository) GetWeightThresholds(ctx context.Context, storeID string) (cart.WeightThresholds, error) {
-	defaults := cart.WeightThresholds{BikeMaxKg: 30, VanMaxKg: 500}
+	defaults := cart.WeightThresholds{BikeMaxKg: 30, PickupMaxKg: 500}
 
 	bikeRate, err := r.GetRateForStore(ctx, storeID, "bike")
 	if err == nil && bikeRate.MaxWeightKg > 0 {
@@ -204,7 +204,7 @@ func (r *Repository) GetWeightThresholds(ctx context.Context, storeID string) (c
 
 	vanRate, err := r.GetRateForStore(ctx, storeID, "van")
 	if err == nil && vanRate.MaxWeightKg > 0 {
-		defaults.VanMaxKg = vanRate.MaxWeightKg
+		defaults.PickupMaxKg = vanRate.MaxWeightKg
 	}
 
 	return defaults, nil
