@@ -11,6 +11,7 @@ import (
 
 	"github.com/Bessmack/hardware-store-api/internal/auth"
 	"github.com/Bessmack/hardware-store-api/internal/config"
+	"github.com/Bessmack/hardware-store-api/internal/delivery"
 	"github.com/Bessmack/hardware-store-api/internal/geo"
 	"github.com/Bessmack/hardware-store-api/internal/middleware"
 	"github.com/Bessmack/hardware-store-api/internal/notifications"
@@ -89,6 +90,11 @@ func main() {
 	locationService := geo.NewLocationService(cacheClient, reverseGeocoder, storeService)
 	geocoder        := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
 	autocompleter   := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
+
+	deliveryRepo    := delivery.NewRepository(db)
+	deliveryService := delivery.NewService(deliveryRepo, storeRepo)
+	deliveryHandler := delivery.NewHandler(deliveryService)
+	_ = deliveryHandler // wired in server/routes.go
 
 	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
 		JWTSecret:           cfg.JWT.Secret,
