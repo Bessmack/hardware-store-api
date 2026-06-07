@@ -223,3 +223,36 @@ func (r *Repository) GetLivePrice(ctx context.Context, productID, storeID string
 	}
 	return price, currency, inStock, limited, nil
 }
+
+// ── orders.StockManager implementation ───────────────────────────────────────
+
+// ReduceStock decrements the stock quantity for a product at a store.
+// Called when an order is placed to reserve inventory.
+func (r *Repository) ReduceStock(ctx context.Context, storeID, productID string, qty int) error {
+	result, err := r.db.Pool.Exec(ctx, `
+		UPDATE store_inventory
+		SET stock_quantity = GREATEST(stock_quantity - $1, 0)
+		WHERE store_id = $2 AND product_id = $3
+	`, qty, storeID, productID)
+	if err != nil {
+		return fmt.Errorf("inventory: reduce stock failed: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("inventory: product not found in store inventory")
+	}
+	return nil
+}
+
+// RestoreStock increments the stock quantity for a product at a store.
+// Called when an order is cancelled to return the reserved inventory.
+func (r *Repository) RestoreStock(ctx context.Context, storeID, productID string, qty int) error {
+	_, err := r.db.Pool.Exec(ctx, `
+		UPDATE store_inventory
+		SET stock_quantity = stock_quantity + $1
+		WHERE store_id = $2 AND product_id = $3
+	`, qty, storeID, productID)
+	if err != nil {
+		return fmt.Errorf("inventory: restore stock failed: %w", err)
+	}
+	return nil
+}

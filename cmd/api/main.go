@@ -10,16 +10,21 @@ import (
 	"time"
 
 	"github.com/Bessmack/hardware-store-api/internal/auth"
+	"github.com/Bessmack/hardware-store-api/internal/cart"
 	"github.com/Bessmack/hardware-store-api/internal/config"
 	"github.com/Bessmack/hardware-store-api/internal/delivery"
 	"github.com/Bessmack/hardware-store-api/internal/geo"
+	"github.com/Bessmack/hardware-store-api/internal/inventory"
 	"github.com/Bessmack/hardware-store-api/internal/middleware"
 	"github.com/Bessmack/hardware-store-api/internal/notifications"
 	notifEmail "github.com/Bessmack/hardware-store-api/internal/notifications/email"
 	notifWhatsApp "github.com/Bessmack/hardware-store-api/internal/notifications/whatsapp"
+	"github.com/Bessmack/hardware-store-api/internal/orders"
+	"github.com/Bessmack/hardware-store-api/internal/products"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
 	"github.com/Bessmack/hardware-store-api/internal/stores"
 	"github.com/Bessmack/hardware-store-api/internal/users"
+	"github.com/Bessmack/hardware-store-api/internal/wishlist"
 	"github.com/Bessmack/hardware-store-api/pkg/cache"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/Bessmack/hardware-store-api/pkg/logger"
@@ -27,20 +32,20 @@ import (
 )
 
 func main() {
-	// 1. Config
+	// ── 1. Config ─────────────────────────────────────────────────────────────
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	// 2. Logger
+	// ── 2. Logger ─────────────────────────────────────────────────────────────
 	logger.Init(cfg.App.Env)
 	l := logger.Get()
 	l.Info().Str("app", cfg.App.Name).Str("env", cfg.App.Env).Msg("starting server")
 
 	ctx := context.Background()
 
-	// 3. Database
+	// ── 3. Database ───────────────────────────────────────────────────────────
 	db, err := database.Connect(ctx, cfg.Database.URL)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to connect to database")
@@ -49,14 +54,14 @@ func main() {
 	l.Info().Msg("database connected")
 
 	// Run migrations before starting the server to ensure the schema is up-to-date.
-	// In production, consider running migrations as a separate step during deployment to avoid downtime.
+	// In production, consider running migrations as a separate step during deployment
+	// to avoid downtime on large tables.
 	if err := database.RunMigrations(cfg.Database.URL, "./migrations"); err != nil {
 		l.Fatal().Err(err).Msg("migrations failed")
 	}
 	l.Info().Msg("migrations applied")
-	
 
-	// 4. Cache (Redis)
+	// ── 4. Cache (Redis) ──────────────────────────────────────────────────────
 	cacheClient, err := cache.Connect(ctx, cfg.Redis.URL)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to connect to redis")
@@ -64,7 +69,7 @@ func main() {
 	defer cacheClient.Close()
 	l.Info().Msg("cache connected")
 
-	// 5. Storage (Cloudinary)
+	// ── 5. Storage (Cloudinary) ───────────────────────────────────────────────
 	storageClient, err := cloudstorage.New(cloudstorage.Config{
 		CloudName: cfg.Cloudinary.CloudName,
 		APIKey:    cfg.Cloudinary.APIKey,
@@ -74,43 +79,26 @@ func main() {
 		l.Fatal().Err(err).Msg("failed to initialise cloudinary")
 	}
 	l.Info().Msg("storage connected")
-	_ = storageClient // used by pod domain (wired when built)
+	_ = storageClient // injected into pod domain when built
 
-	// 6. Apply configurable business rules
+	// ── 6. Apply configurable business rules ──────────────────────────────────
 	// Override package-level defaults with values from .env so behaviour
 	// can be tuned without recompiling.
 	geo.LocationTTL = time.Duration(cfg.Rules.LocationCacheTTLHours) * time.Hour
 
-	// 7. Repositories
-	userRepo  := users.NewRepository(db)
-	storeRepo := stores.NewRepository(db)
+	// ── 7. Repositories ───────────────────────────────────────────────────────
+	// All repositories must be declared before any service that depends on them.
+	userRepo      := users.NewRepository(db)
+	storeRepo     := stores.NewRepository(db)
+	productRepo   := products.NewRepository(db)
+	inventoryRepo := inventory.NewRepository(db)
+	cartRepo      := cart.NewRepository(db)
+	wishlistRepo  := wishlist.NewRepository(db)
+	deliveryRepo  := delivery.NewRepository(db)
+	orderRepo     := orders.NewRepository(db)
 
-	// 8. Services
-	userService  := users.NewService(userRepo)
-	storeService := stores.NewService(storeRepo)
-
-	reverseGeocoder := geo.NewReverseGeocoder(
-		cfg.Geo.OpenCageAPIKey,
-		cfg.Geo.NominatimBaseURL,
-		cfg.Geo.NominatimUserAgent,
-	)
-	// storeService implements geo.StoreLister - no circular import
-	locationService := geo.NewLocationService(cacheClient, reverseGeocoder, storeService)
-	geocoder        := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
-	autocompleter   := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
-
-	deliveryRepo    := delivery.NewRepository(db)
-	deliveryService := delivery.NewService(deliveryRepo, storeRepo)
-	deliveryHandler := delivery.NewHandler(deliveryService)
-	_ = deliveryHandler // wired in server/routes.go
-
-	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
-		JWTSecret:           cfg.JWT.Secret,
-		AccessExpiryMinutes: cfg.JWT.AccessExpiryMinutes,
-		RefreshExpiryDays:   cfg.JWT.RefreshExpiryDays,
-	})
-
-	// Notifications registry — register every channel; fan-out happens in service
+	// ── 8. Notifications ──────────────────────────────────────────────────────
+	// Declared early because several services (orders, pod) depend on it.
 	notifRegistry := notifications.NewRegistry()
 	notifRegistry.Register(notifWhatsApp.New(notifWhatsApp.Config{
 		APIURL:     cfg.WhatsApp.APIURL,
@@ -127,14 +115,64 @@ func main() {
 		FromName: cfg.Email.FromName,
 	}))
 	notifService := notifications.NewService(notifRegistry)
-	_ = notifService // injected into order, pod domains when built
 
-	// 9. Middleware
+	// ── 9. Services ───────────────────────────────────────────────────────────
+
+	userService  := users.NewService(userRepo)
+	storeService := stores.NewService(storeRepo)
+
+	// Geo — reverse geocoder + location cache (4-hour Redis TTL)
+	reverseGeocoder := geo.NewReverseGeocoder(
+		cfg.Geo.OpenCageAPIKey,
+		cfg.Geo.NominatimBaseURL,
+		cfg.Geo.NominatimUserAgent,
+	)
+	// storeService implements geo.StoreLister — no circular import
+	locationService := geo.NewLocationService(cacheClient, reverseGeocoder, storeService)
+	geocoder        := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
+	autocompleter   := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
+
+	productService  := products.NewService(productRepo)
+	inventoryService := inventory.NewService(inventoryRepo)
+
+	// Cart depends on inventory (price locking) and delivery (weight thresholds)
+	cartService := cart.NewService(
+		cartRepo,
+		inventoryRepo,   // cart.InventoryReader  — GetCurrentPrice
+		deliveryRepo,    // cart.WeightThresholdReader — GetWeightThresholds
+	)
+
+	// Wishlist depends on inventory for live pricing
+	wishlistService := wishlist.NewService(
+		wishlistRepo,
+		inventoryRepo,   // wishlist.LivePriceFetcher — GetLivePrice
+	)
+
+	deliveryService := delivery.NewService(deliveryRepo, storeRepo)
+
+	// Orders depends on nearly everything — declared last
+	orderService := orders.NewService(
+		orderRepo,
+		cartRepo,        // orders.CartReader        — GetItemsForOrder, ClearCart
+		inventoryRepo,   // orders.StockManager      — ReduceStock, RestoreStock
+		deliveryService, // orders.DeliveryFeeCalculator — CalculateFee
+		nil,             // orders.PaymentInitiator  — wired when payments domain is built
+		storeRepo,       // orders.StoreInfoReader   — GetStoreInfo
+		userRepo,        // orders.CustomerInfoReader — GetCustomerInfo
+		notifService,    // orders.OrderNotifier
+	)
+
+	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
+		JWTSecret:           cfg.JWT.Secret,
+		AccessExpiryMinutes: cfg.JWT.AccessExpiryMinutes,
+		RefreshExpiryDays:   cfg.JWT.RefreshExpiryDays,
+	})
+
+	// ── 10. Middleware ────────────────────────────────────────────────────────
 	authMw       := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
 	storeScopeMw := middleware.NewStoreScopeMiddleware(userService)
 
-	// Build a raw *redis.Client for the rate limiter
-	// (the cache package wraps it, but redis_rate needs the unwrapped client)
+	// Raw *redis.Client needed by redis_rate (cache package wraps it)
 	redisOpts, _ := redis.ParseURL(cfg.Redis.URL)
 	redisRaw     := redis.NewClient(redisOpts)
 	defer redisRaw.Close()
@@ -145,28 +183,45 @@ func main() {
 		IsDevelopment: cfg.IsDevelopment(),
 	})
 
-	_ = rateLimiter // wired in server/routes.go
-	_ = corsMw      // wired in server/routes.go
+	// ── 11. Handlers ──────────────────────────────────────────────────────────
+	authHandler      := auth.NewHandler(authService, locationService)
+	userHandler      := users.NewHandler(userService)
+	storeHandler     := stores.NewHandler(storeService)
+	geoHandler       := geo.NewHandler(locationService, autocompleter, geocoder)
+	productHandler   := products.NewHandler(productService, locationService)
+	inventoryHandler := inventory.NewHandler(inventoryService)
+	cartHandler      := cart.NewHandler(cartService)
+	wishlistHandler  := wishlist.NewHandler(wishlistService, locationService)
+	deliveryHandler  := delivery.NewHandler(deliveryService)
+	orderHandler     := orders.NewHandler(orderService)
 
-	// 10. Handlers
-	authHandler  := auth.NewHandler(authService, locationService)
-	userHandler  := users.NewHandler(userService)
-	storeHandler := stores.NewHandler(storeService)
-	geoHandler   := geo.NewHandler(locationService, autocompleter, geocoder)
-
-	// Suppress unused variable warnings for handlers not yet wired into routes
+	// Suppress unused variable warnings until server/routes.go is wired in.
+	// Remove each _ = ... line as you register the corresponding handler in routes.go.
 	_ = authMw
 	_ = storeScopeMw
+	_ = rateLimiter
+	_ = corsMw
 	_ = authHandler
 	_ = userHandler
 	_ = storeHandler
 	_ = geoHandler
+	_ = productHandler
+	_ = inventoryHandler
+	_ = cartHandler
+	_ = wishlistHandler
+	_ = deliveryHandler
+	_ = orderHandler
 
-	// 11. Router
-	// TODO: wire up server/routes.go as domains are added
-	// router := server.NewRouter(cfg, authMw, storeScopeMw, authHandler, ...)
+	// ── 12. Router ────────────────────────────────────────────────────────────
+	// TODO: uncomment once server/routes.go is built
+	// router := server.NewRouter(
+	//     cfg, authMw, storeScopeMw, rateLimiter, corsMw,
+	//     authHandler, userHandler, storeHandler, geoHandler,
+	//     productHandler, inventoryHandler, cartHandler,
+	//     wishlistHandler, deliveryHandler, orderHandler,
+	// )
 
-	// 12. HTTP Server
+	// ── 13. HTTP Server ───────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%s", cfg.App.Port),
 		// Handler: router,
@@ -175,7 +230,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 13. Graceful shutdown
+	// ── 14. Graceful shutdown ─────────────────────────────────────────────────
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

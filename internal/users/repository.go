@@ -244,3 +244,25 @@ func nullIfEmpty(s string) interface{} {
 	}
 	return s
 }
+
+// ── orders.CustomerInfoReader implementation ─────────────────────────────────
+
+// GetCustomerInfo returns a customer's display name, phone, and email.
+// Used by the orders service to send notifications after order events.
+func (r *Repository) GetCustomerInfo(ctx context.Context, customerID string) (name, phone, email string, err error) {
+	var firstName, lastName string
+	row := r.db.Pool.QueryRow(ctx,
+		`SELECT COALESCE(first_name,''), COALESCE(last_name,''),
+		        COALESCE(phone,''), email
+		 FROM users WHERE id = $1`,
+		customerID,
+	)
+	if scanErr := row.Scan(&firstName, &lastName, &phone, &email); scanErr != nil {
+		return "", "", "", scanErr
+	}
+	name = firstName
+	if lastName != "" {
+		name = firstName + " " + lastName
+	}
+	return name, phone, email, nil
+}

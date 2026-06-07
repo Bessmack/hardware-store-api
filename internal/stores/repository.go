@@ -161,6 +161,10 @@ func (r *Repository) ListActive(ctx context.Context) ([]*Store, error) {
 	return r.list(ctx, true, false)
 }
 
+func (r *Repository) ListInactive(ctx context.Context) ([]*Store, error) {
+	return r.list(ctx, false, true)
+}
+
 // ListAll returns every store including inactive — superadmin only.
 func (r *Repository) ListAll(ctx context.Context) ([]*Store, error) {
 	return r.list(ctx, false, true)
@@ -289,4 +293,18 @@ func (r *Repository) GetStoreCoordinates(ctx context.Context, storeID string) (n
 		return "", 0, 0, "", fmt.Errorf("stores: store not found: %w", scanErr)
 	}
 	return name, lat, lng, currency, nil
+}
+
+// ── orders.StoreInfoReader implementation ────────────────────────────────────
+
+// GetStoreInfo returns the store name and county for order reference generation.
+func (r *Repository) GetStoreInfo(ctx context.Context, storeID string) (name, county string, err error) {
+	row := r.db.Pool.QueryRow(ctx,
+		`SELECT name, COALESCE(county, '') FROM stores WHERE id = $1`,
+		storeID,
+	)
+	if scanErr := row.Scan(&name, &county); scanErr != nil {
+		return "", "", fmt.Errorf("stores: not found: %w", scanErr)
+	}
+	return name, county, nil
 }

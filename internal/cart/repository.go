@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Bessmack/hardware-store-api/internal/orders"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/jackc/pgx/v5"
 )
@@ -17,6 +18,69 @@ var (
 
 type Repository struct {
 	db *database.DB
+}
+
+// ClearCart implements [orders.CartReader].
+func (r *Repository) ClearCart(ctx context.Context, customerID string, sessionID string) error {
+	panic("unimplemented")
+}
+
+
+// ── orders.CartReader implementation ─────────────────────────────────────────
+
+// GetItemsForOrder returns cart items in the format the orders service needs.
+// Resolves the cart from customerID (logged in) or sessionID (guest).
+func (r *Repository) GetItemsForOrder(ctx context.Context, customerID, sessionID string) ([]orders.CartItemForOrder, error) {
+	var cartID string
+
+	if customerID != "" {
+		err := r.db.Pool.QueryRow(ctx,
+			`SELECT id FROM carts WHERE customer_id = $1`, customerID,
+		).Scan(&cartID)
+		if err != nil {
+			return nil, nil // no cart = empty
+		}
+	} else if sessionID != "" {
+		err := r.db.Pool.QueryRow(ctx,
+			`SELECT id FROM carts WHERE guest_session_id = $1`, sessionID,
+		).Scan(&cartID)
+		if err != nil {
+			return nil, nil
+		}
+	}
+	if cartID == "" {
+		return nil, nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT
+			ci.product_id, p.name, ci.store_id,
+			ci.quantity, ci.unit_price, ci.currency,
+			COALESCE(si.stock_quantity > 0 AND si.is_available, false)
+		FROM cart_items ci
+		JOIN products p ON p.id = ci.product_id
+		LEFT JOIN store_inventory si
+			ON si.product_id = ci.product_id AND si.store_id = ci.store_id
+		WHERE ci.cart_id = $1
+	`, cartID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []orders.CartItemForOrder
+	for rows.Next() {
+		var item orders.CartItemForOrder
+		if err := rows.Scan(
+			&item.ProductID, &item.ProductName, &item.StoreID,
+			&item.Quantity, &item.UnitPrice, &item.Currency,
+			&item.InStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func NewRepository(db *database.DB) *Repository {

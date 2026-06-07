@@ -182,3 +182,23 @@ func roundKm(km float64) float64 {
 func roundFee(fee float64) float64 {
 	return float64(int(fee*100)) / 100
 }
+
+
+// ── orders.DeliveryFeeCalculator implementation ───────────────────────────────
+
+// CalculateFee returns the delivery fee for a store → address journey.
+// Called server-side by the orders service — client-supplied fees are never trusted.
+func (s *Service) CalculateFee(ctx context.Context, storeID string, lat, lng float64, vehicleType string) (fee float64, currency string, err error) {
+	_, storeLat, storeLng, curr, err := s.stores.GetStoreCoordinates(ctx, storeID)
+	if err != nil {
+		return 0, "", err
+	}
+
+	rate, err := s.repo.GetRateForStore(ctx, storeID, vehicleType)
+	if err != nil {
+		return 0, "", fmt.Errorf("delivery: no rate configured for %s", vehicleType)
+	}
+
+	distanceKm := geo.HaversineDistance(storeLat, storeLng, lat, lng)
+	return CalculateFee(distanceKm, rate.BaseFee, rate.PerKm), curr, nil
+}
