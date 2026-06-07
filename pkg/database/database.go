@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/golang-migrate/migrate/v4"
+    _ "github.com/golang-migrate/migrate/v4/database/postgres"
+    _ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 // DB wraps pgxpool.Pool so the rest of the application
@@ -52,4 +55,23 @@ func (db *DB) Close() {
 // Used by a health check endpoint.
 func (db *DB) Ping(ctx context.Context) error {
 	return db.Pool.Ping(ctx)
+}
+
+// RunMigrations applies all pending migrations.
+// Call this in main.go after Connect() and before starting the HTTP server.
+func RunMigrations(databaseURL, migrationsPath string) error {
+    m, err := migrate.New(
+        "file://"+migrationsPath,
+        databaseURL,
+    )
+    if err != nil {
+        return fmt.Errorf("database: failed to load migrations: %w", err)
+    }
+    defer m.Close()
+
+    if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+        return fmt.Errorf("database: migration failed: %w", err)
+    }
+
+    return nil
 }

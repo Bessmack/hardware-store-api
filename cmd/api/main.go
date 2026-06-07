@@ -48,6 +48,14 @@ func main() {
 	defer db.Close()
 	l.Info().Msg("database connected")
 
+	// Run migrations before starting the server to ensure the schema is up-to-date.
+	// In production, consider running migrations as a separate step during deployment to avoid downtime.
+	if err := database.RunMigrations(cfg.Database.URL, "./migrations"); err != nil {
+		l.Fatal().Err(err).Msg("migrations failed")
+	}
+	l.Info().Msg("migrations applied")
+	
+
 	// 4. Cache (Redis)
 	cacheClient, err := cache.Connect(ctx, cfg.Redis.URL)
 	if err != nil {
