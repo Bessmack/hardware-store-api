@@ -20,69 +20,6 @@ type Repository struct {
 	db *database.DB
 }
 
-// ClearCart implements [orders.CartReader].
-func (r *Repository) ClearCart(ctx context.Context, customerID string, sessionID string) error {
-	panic("unimplemented")
-}
-
-
-// ── orders.CartReader implementation ─────────────────────────────────────────
-
-// GetItemsForOrder returns cart items in the format the orders service needs.
-// Resolves the cart from customerID (logged in) or sessionID (guest).
-func (r *Repository) GetItemsForOrder(ctx context.Context, customerID, sessionID string) ([]orders.CartItemForOrder, error) {
-	var cartID string
-
-	if customerID != "" {
-		err := r.db.Pool.QueryRow(ctx,
-			`SELECT id FROM carts WHERE customer_id = $1`, customerID,
-		).Scan(&cartID)
-		if err != nil {
-			return nil, nil // no cart = empty
-		}
-	} else if sessionID != "" {
-		err := r.db.Pool.QueryRow(ctx,
-			`SELECT id FROM carts WHERE guest_session_id = $1`, sessionID,
-		).Scan(&cartID)
-		if err != nil {
-			return nil, nil
-		}
-	}
-	if cartID == "" {
-		return nil, nil
-	}
-
-	rows, err := r.db.Pool.Query(ctx, `
-		SELECT
-			ci.product_id, p.name, ci.store_id,
-			ci.quantity, ci.unit_price, ci.currency,
-			COALESCE(si.stock_quantity > 0 AND si.is_available, false)
-		FROM cart_items ci
-		JOIN products p ON p.id = ci.product_id
-		LEFT JOIN store_inventory si
-			ON si.product_id = ci.product_id AND si.store_id = ci.store_id
-		WHERE ci.cart_id = $1
-	`, cartID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var items []orders.CartItemForOrder
-	for rows.Next() {
-		var item orders.CartItemForOrder
-		if err := rows.Scan(
-			&item.ProductID, &item.ProductName, &item.StoreID,
-			&item.Quantity, &item.UnitPrice, &item.Currency,
-			&item.InStock,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
 func NewRepository(db *database.DB) *Repository {
 	return &Repository{db: db}
 }
@@ -368,4 +305,94 @@ func scanCartItem(row pgx.Row) (*CartItem, error) {
 		return nil, err
 	}
 	return &i, nil
+}
+
+// ── orders.CartReader implementation ─────────────────────────────────────────
+
+// GetItemsForOrder returns cart items in the format the orders service needs.
+// Resolves the cart from customerID (logged in) or sessionID (guest).
+func (r *Repository) GetItemsForOrder(ctx context.Context, customerID, sessionID string) ([]orders.CartItemForOrder, error) {
+	var cartID string
+
+	if customerID != "" {
+		err := r.db.Pool.QueryRow(ctx,
+			`SELECT id FROM carts WHERE customer_id = $1`, customerID,
+		).Scan(&cartID)
+		if err != nil {
+			return nil, nil // no cart = empty
+		}
+	} else if sessionID != "" {
+		err := r.db.Pool.QueryRow(ctx,
+			`SELECT id FROM carts WHERE guest_session_id = $1`, sessionID,
+		).Scan(&cartID)
+		if err != nil {
+			return nil, nil
+		}
+	}
+	if cartID == "" {
+		return nil, nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT
+			ci.product_id, p.name, ci.store_id,
+			ci.quantity, ci.unit_price, ci.currency,
+			COALESCE(si.stock_quantity > 0 AND si.is_available, false)
+		FROM cart_items ci
+		JOIN products p ON p.id = ci.product_id
+		LEFT JOIN store_inventory si
+			ON si.product_id = ci.product_id AND si.store_id = ci.store_id
+		WHERE ci.cart_id = $1
+	`, cartID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []orders.CartItemForOrder
+	for rows.Next() {
+		var item orders.CartItemForOrder
+		if err := rows.Scan(
+			&item.ProductID, &item.ProductName, &item.StoreID,
+			&item.Quantity, &item.UnitPrice, &item.Currency,
+			&item.InStock,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// ClearCart removes all items from the customer's or guest's cart.
+// The cart record itself is kept — it will be reused the next time the
+// customer adds an item. Implements orders.CartReader.
+//
+// Resolves the cart from customerID (logged-in user) or sessionID (guest).
+// If no cart exists for the given identity, the call is a no-op — not an error.
+func (r *Repository) ClearCart(ctx context.Context, customerID, sessionID string) error {
+	var cartID string
+
+	switch {
+	case customerID != "":
+		err := r.db.Pool.QueryRow(ctx,
+			`SELECT id FROM carts WHERE customer_id = $1`, customerID,
+		).Scan(&cartID)
+		if err != nil {
+			return nil // no cart exists — nothing to clear
+		}
+	case sessionID != "":
+		err := r.db.Pool.QueryRow(ctx,
+			`SELECT id FROM carts WHERE guest_session_id = $1`, sessionID,
+		).Scan(&cartID)
+		if err != nil {
+			return nil // no cart exists — nothing to clear
+		}
+	default:
+		return nil // no identity provided — nothing to do
+	}
+
+	// Reuse the existing ClearItems method which does:
+	//   DELETE FROM cart_items WHERE cart_id = $1
+	return r.ClearItems(ctx, cartID)
 }
