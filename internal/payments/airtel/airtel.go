@@ -49,3 +49,77 @@ func New(cfg Config, c *cache.Cache, storeCreds payments.StoreCredentialsReader)
 }
 
 func (p *Provider) Name() string { return "airtel" }
+
+// ── Initiate — USSD push ──────────────────────────────────────────────────────
+
+// Initiate sends an Airtel Money payment prompt to the customer's phone.
+// The customer receives a USSD push notification and confirms with their PIN.
+func (p *Provider) Initiate(ctx context.Context, req payments.PaymentRequest) (*payments.PaymentResponse, error) {
+	creds, err := p.storeCreds.GetPaymentCredentials(ctx, req.StoreID)
+	if err != nil {
+		return nil, fmt.Errorf("airtel: failed to load store credentials: %w", err)
+	}
+
+	token, err := p.getAccessToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("airtel: failed to get access token: %w", err)
+	}
+
+	// Airtel expects the currency from the store's configuration
+	currency := creds.Currency
+	if currency == "" {
+		currency = "KES"
+	}
+
+	// Derive country code from currency (KES→KE, UGX→UG, TZS→TZ)
+	country := currencyToCountry(currency)
+
+	body := map[string]interface{}{
+		"reference": req.OrderID,
+		"subscriber": map[string]interface{}{
+			"country":  country,
+			"currency": currency,
+			"msisdn":   sanitizePhone(req.Phone),
+		},
+		"transaction": map[string]interface{}{
+			"amount":   req.Amount,
+			"country":  country,
+			"currency": currency,
+			"id":       req.OrderID, // unique transaction identifier
+		},
+	}
+
+	respBody, err := p.post(ctx, "/merchant/v2/payments/", token, country, currency, body)
+	if err != nil {
+		return nil, fmt.Errorf("airtel: payment request failed: %w", err)
+	}
+
+	var resp struct {
+		Data struct {
+			Transaction struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"transaction"`
+		} `json:"data"`
+		Status struct {
+			Code        string `json:"code"`
+			Message     string `json:"message"`
+			ResultCode  string `json:"result_code"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("airtel: failed to decode response: %w", err)
+	}
+
+	if resp.Status.Code != "200" {
+		return nil, fmt.Errorf("airtel: payment rejected — %s (%s)",
+			resp.Status.Message, resp.Status.ResultCode)
+	}
+
+	return &payments.PaymentResponse{
+		ProviderRef:     resp.Data.Transaction.ID,
+		Status:          "pending",
+		Instructions:    "Please check your phone for an Airtel Money payment request and enter your PIN to confirm.",
+		AwaitingPayment: true,
+	}, nil
+}
