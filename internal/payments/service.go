@@ -70,7 +70,8 @@ func (s *Service) AvailableProviders() []string {
 // Format: {MPESA_CALLBACK_URL}/{storeID}
 // e.g. https://ngrok-id.ngrok-free.app/api/v1/payments/mpesa/callback/store-uuid
 func (s *Service) buildCallbackURL(provider, storeID string) string {
-	return fmt.Sprintf("%s/%s - %s", s.cfg.CallbackURL, storeID, provider)
+	fmt.Printf("Building callback URL for \"%s\" Provider. - store: %s\n", provider, storeID)
+	return fmt.Sprintf("%s/%s", s.cfg.CallbackURL, storeID)
 }
 
 // ── Request/response types used by orders.PaymentInitiator ───────────────────

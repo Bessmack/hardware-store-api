@@ -185,10 +185,9 @@ func (r *Repository) UpdateCredentials(ctx context.Context, id string, req Updat
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 	`,
-		encPasskey, encConsumerKey, encConsumerSecret, encAirtelID,
-		// Note: keep compatibility with earlier parameter order by matching positions
-		req.MpesaPaybill, req.MpesaAccountRef,
-		req.MpesaShortcode, req.AirtelMerchantID, id,
+		req.MpesaPaybill, req.MpesaAccountRef, req.MpesaShortcode,
+		encPasskey, encConsumerKey, encConsumerSecret,
+		encAirtelID, id,
 	)
 
 	s, err := scanStore(row)
