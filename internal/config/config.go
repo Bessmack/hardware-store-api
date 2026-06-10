@@ -20,6 +20,7 @@ type Config struct {
 	WhatsApp   WhatsAppConfig
 	Email      EmailConfig
 	Geo        GeoConfig
+	Security   SecurityConfig
 	Cloudinary CloudinaryConfig
 	Rules      RulesConfig
 }
@@ -120,6 +121,15 @@ type GeoConfig struct {
 	NominatimBaseURL   string
 	NominatimUserAgent string // required by Nominatim policy — identifies your app
 	OpenCageAPIKey     string // leave empty to fall back to Nominatim for reverse geocoding
+}
+
+// SecurityConfig holds cryptographic settings.
+type SecurityConfig struct {
+	// EncryptionKey is a 64-character hex string (32 bytes) used for AES-256-GCM
+	// encryption of sensitive database fields (M-Pesa credentials, Airtel keys).
+	// Generate with: openssl rand -hex 32
+	// Required — the server will not start without it.
+	EncryptionKey string
 }
 
 // CloudinaryConfig holds credentials for proof-of-delivery photo storage.
@@ -227,6 +237,9 @@ func Load() (*Config, error) {
 			CloudName: requireEnv("CLOUDINARY_CLOUD_NAME"),
 			APIKey:    requireEnv("CLOUDINARY_API_KEY"),
 			APISecret: requireEnv("CLOUDINARY_API_SECRET"),
+		},
+		Security: SecurityConfig{
+			EncryptionKey: requireEnv("ENCRYPTION_KEY"),
 		},
 		Rules: RulesConfig{
 			LocationCacheTTLHours: locationTTL,
