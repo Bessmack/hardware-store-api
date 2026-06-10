@@ -26,6 +26,7 @@ import (
 	"github.com/Bessmack/hardware-store-api/internal/users"
 	"github.com/Bessmack/hardware-store-api/internal/wishlist"
 	"github.com/Bessmack/hardware-store-api/pkg/cache"
+	"github.com/Bessmack/hardware-store-api/pkg/crypto"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/Bessmack/hardware-store-api/pkg/logger"
 	"github.com/redis/go-redis/v9"
@@ -89,7 +90,12 @@ func main() {
 	// ── 7. Repositories ───────────────────────────────────────────────────────
 	// All repositories must be declared before any service that depends on them.
 	userRepo      := users.NewRepository(db)
-	storeRepo     := stores.NewRepository(db)
+	// Initialize crypto cipher for encrypting sensitive fields in DB
+	cipher, err := crypto.NewCipher(cfg.Security.EncryptionKey)
+	if err != nil {
+		l.Fatal().Err(err).Msg("failed to initialize crypto cipher")
+	}
+	storeRepo     := stores.NewRepository(db, cipher)
 	productRepo   := products.NewRepository(db)
 	inventoryRepo := inventory.NewRepository(db)
 	cartRepo      := cart.NewRepository(db)

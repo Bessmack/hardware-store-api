@@ -20,6 +20,8 @@ type Store struct {
 	MpesaAccountRef  string    `db:"mpesa_account_ref"`
 	MpesaShortcode   string    `db:"mpesa_shortcode"`
 	MpesaPasskey     string    `db:"mpesa_passkey"` // NEVER included in any response
+	MpesaConsumerKey    string    `db:"mpesa_consumer_key"`
+	MpesaConsumerSecret string    `db:"mpesa_consumer_secret"` // NEVER returned in any API response
 	AirtelMerchantID string    `db:"airtel_merchant_id"`
 	IsActive         bool      `db:"is_active"`
 	CreatedAt        time.Time `db:"created_at"`
@@ -62,6 +64,8 @@ type UpdateCredentialsRequest struct {
 	MpesaAccountRef  string `json:"mpesa_account_ref"`
 	MpesaShortcode   string `json:"mpesa_shortcode"`
 	MpesaPasskey     string `json:"mpesa_passkey"`
+	MpesaConsumerKey    string `json:"mpesa_consumer_key"`
+	MpesaConsumerSecret string `json:"mpesa_consumer_secret"`
 	AirtelMerchantID string `json:"airtel_merchant_id"`
 }
 

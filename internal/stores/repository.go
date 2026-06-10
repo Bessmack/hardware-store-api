@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/Bessmack/hardware-store-api/internal/geo"
+	"github.com/Bessmack/hardware-store-api/internal/payments"
+	"github.com/Bessmack/hardware-store-api/pkg/crypto"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/jackc/pgx/v5"
 )
@@ -13,11 +15,12 @@ import (
 var ErrNotFound = errors.New("store not found")
 
 type Repository struct {
-	db *database.DB
+	db     *database.DB
+	cipher *crypto.Cipher
 }
 
-func NewRepository(db *database.DB) *Repository {
-	return &Repository{db: db}
+func NewRepository(db *database.DB, c *crypto.Cipher) *Repository {
+	return &Repository{db: db, cipher: c}
 }
 
 // Create inserts a new store and returns the created record.
@@ -32,6 +35,7 @@ func (r *Repository) Create(ctx context.Context, req CreateStoreRequest) (*Store
 			COALESCE(phone, ''), COALESCE(email, ''),
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
+			COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, ''),
 			COALESCE(airtel_merchant_id, ''),
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
@@ -42,7 +46,14 @@ func (r *Repository) Create(ctx context.Context, req CreateStoreRequest) (*Store
 		nullIfEmpty(req.Currency),
 	)
 
-	return scanStore(row)
+	s, err := scanStore(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.decryptStore(s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // GetByID fetches a store by UUID.
@@ -55,6 +66,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*Store, error) {
 			COALESCE(phone, ''), COALESCE(email, ''),
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
+			COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, ''),
 			COALESCE(airtel_merchant_id, ''),
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
@@ -64,6 +76,9 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*Store, error) {
 	s, err := scanStore(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	if err := r.decryptStore(s); err != nil {
+		return nil, err
 	}
 	return s, err
 }
@@ -89,6 +104,7 @@ func (r *Repository) Update(ctx context.Context, id string, req UpdateStoreReque
 			COALESCE(phone, ''), COALESCE(email, ''),
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
+			COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, ''),
 			COALESCE(airtel_merchant_id, ''),
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
@@ -103,20 +119,60 @@ func (r *Repository) Update(ctx context.Context, id string, req UpdateStoreReque
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	if err := r.decryptStore(s); err != nil {
+		return nil, err
+	}
 	return s, err
 }
 
 // UpdateCredentials sets or replaces a store's payment credentials.
 // Only fields with non-empty values are updated — send empty string to leave unchanged.
 func (r *Repository) UpdateCredentials(ctx context.Context, id string, req UpdateCredentialsRequest) (*Store, error) {
+	// Encrypt sensitive fields before writing them to the database
+	var (
+		encPasskey        = req.MpesaPasskey
+		encConsumerKey    = req.MpesaConsumerKey
+		encConsumerSecret = req.MpesaConsumerSecret
+		encAirtelID       = req.AirtelMerchantID
+		err               error
+	)
+	if r.cipher != nil {
+		if req.MpesaPasskey != "" {
+			encPasskey, err = r.cipher.Encrypt(req.MpesaPasskey)
+			if err != nil {
+				return nil, fmt.Errorf("stores: encrypt passkey: %w", err)
+			}
+		}
+		if req.MpesaConsumerKey != "" {
+			encConsumerKey, err = r.cipher.Encrypt(req.MpesaConsumerKey)
+			if err != nil {
+				return nil, fmt.Errorf("stores: encrypt consumer key: %w", err)
+			}
+		}
+		if req.MpesaConsumerSecret != "" {
+			encConsumerSecret, err = r.cipher.Encrypt(req.MpesaConsumerSecret)
+			if err != nil {
+				return nil, fmt.Errorf("stores: encrypt consumer secret: %w", err)
+			}
+		}
+		if req.AirtelMerchantID != "" {
+			encAirtelID, err = r.cipher.Encrypt(req.AirtelMerchantID)
+			if err != nil {
+				return nil, fmt.Errorf("stores: encrypt airtel id: %w", err)
+			}
+		}
+	}
+
 	row := r.db.Pool.QueryRow(ctx, `
 		UPDATE stores SET
 			mpesa_paybill       = COALESCE(NULLIF($1, ''), mpesa_paybill),
 			mpesa_account_ref   = COALESCE(NULLIF($2, ''), mpesa_account_ref),
 			mpesa_shortcode     = COALESCE(NULLIF($3, ''), mpesa_shortcode),
 			mpesa_passkey       = COALESCE(NULLIF($4, ''), mpesa_passkey),
-			airtel_merchant_id  = COALESCE(NULLIF($5, ''), airtel_merchant_id)
-		WHERE id = $6
+			mpesa_consumer_key      = COALESCE(NULLIF($5, ''), mpesa_consumer_key),
+			mpesa_consumer_secret   = COALESCE(NULLIF($6, ''), mpesa_consumer_secret),
+			airtel_merchant_id  = COALESCE(NULLIF($7, ''), airtel_merchant_id)
+		WHERE id = $8
 		RETURNING
 			id, name,
 			COALESCE(address, ''), COALESCE(county, ''),
@@ -124,19 +180,23 @@ func (r *Repository) UpdateCredentials(ctx context.Context, id string, req Updat
 			COALESCE(phone, ''), COALESCE(email, ''),
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
+			COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, ''),
 			COALESCE(airtel_merchant_id, ''),
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 	`,
+		encPasskey, encConsumerKey, encConsumerSecret, encAirtelID,
+		// Note: keep compatibility with earlier parameter order by matching positions
 		req.MpesaPaybill, req.MpesaAccountRef,
-		req.MpesaShortcode, req.MpesaPasskey,
-		req.AirtelMerchantID,
-		id,
+		req.MpesaShortcode, req.AirtelMerchantID, id,
 	)
 
 	s, err := scanStore(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	if err := r.decryptStore(s); err != nil {
+		return nil, err
 	}
 	return s, err
 }
@@ -179,6 +239,7 @@ func (r *Repository) list(ctx context.Context, activeOnly, includeInactive bool)
 			COALESCE(phone, ''), COALESCE(email, ''),
 			COALESCE(mpesa_paybill, ''), COALESCE(mpesa_account_ref, ''),
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
+			COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, ''),
 			COALESCE(airtel_merchant_id, ''),
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
@@ -186,6 +247,11 @@ func (r *Repository) list(ctx context.Context, activeOnly, includeInactive bool)
 	`
 	if activeOnly {
 		query += " WHERE is_active = TRUE"
+	}
+	query += " ORDER BY county, name"
+
+	if !activeOnly && includeInactive {
+		query += " WHERE is_active = FALSE"
 	}
 	query += " ORDER BY county, name"
 
@@ -200,6 +266,9 @@ func (r *Repository) list(ctx context.Context, activeOnly, includeInactive bool)
 		s, err := scanStoreFromRows(rows)
 		if err != nil {
 			return nil, fmt.Errorf("stores: scan error: %w", err)
+		}
+		if err := r.decryptStore(s); err != nil {
+			return nil, err
 		}
 		result = append(result, s)
 	}
@@ -246,6 +315,7 @@ func scanStore(row pgx.Row) (*Store, error) {
 		&s.Phone, &s.Email,
 		&s.MpesaPaybill, &s.MpesaAccountRef,
 		&s.MpesaShortcode, &s.MpesaPasskey,
+		&s.MpesaConsumerKey, &s.MpesaConsumerSecret,
 		&s.AirtelMerchantID,
 		&s.Currency,
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
@@ -263,6 +333,7 @@ func scanStoreFromRows(rows pgx.Rows) (*Store, error) {
 		&s.Phone, &s.Email,
 		&s.MpesaPaybill, &s.MpesaAccountRef,
 		&s.MpesaShortcode, &s.MpesaPasskey,
+		&s.MpesaConsumerKey, &s.MpesaConsumerSecret,
 		&s.AirtelMerchantID,
 		&s.Currency,
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
@@ -279,6 +350,39 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
+// decryptStore decrypts sensitive fields on a Store after reading from DB.
+func (r *Repository) decryptStore(s *Store) error {
+	if r.cipher == nil || s == nil {
+		return nil
+	}
+	var err error
+	if s.MpesaPasskey != "" {
+		s.MpesaPasskey, err = r.cipher.Decrypt(s.MpesaPasskey)
+		if err != nil {
+			return fmt.Errorf("stores: decrypt mpesa_passkey: %w", err)
+		}
+	}
+	if s.MpesaConsumerKey != "" {
+		s.MpesaConsumerKey, err = r.cipher.Decrypt(s.MpesaConsumerKey)
+		if err != nil {
+			return fmt.Errorf("stores: decrypt mpesa_consumer_key: %w", err)
+		}
+	}
+	if s.MpesaConsumerSecret != "" {
+		s.MpesaConsumerSecret, err = r.cipher.Decrypt(s.MpesaConsumerSecret)
+		if err != nil {
+			return fmt.Errorf("stores: decrypt mpesa_consumer_secret: %w", err)
+		}
+	}
+	if s.AirtelMerchantID != "" {
+		s.AirtelMerchantID, err = r.cipher.Decrypt(s.AirtelMerchantID)
+		if err != nil {
+			return fmt.Errorf("stores: decrypt airtel_merchant_id: %w", err)
+		}
+	}
+	return nil
+}
+
 // ── delivery.StoreCoordinateReader implementation ────────────────────────────
 
 // GetStoreCoordinates satisfies the delivery.StoreCoordinateReader interface.
@@ -293,6 +397,56 @@ func (r *Repository) GetStoreCoordinates(ctx context.Context, storeID string) (n
 		return "", 0, 0, "", fmt.Errorf("stores: store not found: %w", scanErr)
 	}
 	return name, lat, lng, currency, nil
+}
+
+// GetPaymentCredentials returns decrypted payment credentials used by providers.
+func (r *Repository) GetPaymentCredentials(ctx context.Context, storeID string) (*payments.StoreCredentials, error) {
+	row := r.db.Pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
+			COALESCE(mpesa_account_ref, ''), COALESCE(airtel_merchant_id, ''),
+			COALESCE(currency, 'KES'), COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, '')
+		FROM stores WHERE id = $1
+	`, storeID)
+
+	var creds payments.StoreCredentials
+	if err := row.Scan(&creds.MpesaShortcode, &creds.MpesaPasskey, &creds.MpesaAccountRef, &creds.AirtelMerchantID, &creds.Currency, &creds.MpesaConsumerKey, &creds.MpesaConsumerSecret); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	// Decrypt sensitive fields before returning
+	if r.cipher != nil {
+		var dErr error
+		if creds.MpesaPasskey != "" {
+			creds.MpesaPasskey, dErr = r.cipher.Decrypt(creds.MpesaPasskey)
+			if dErr != nil {
+				return nil, fmt.Errorf("stores: decrypt mpesa_passkey: %w", dErr)
+			}
+		}
+		if creds.MpesaConsumerKey != "" {
+			creds.MpesaConsumerKey, dErr = r.cipher.Decrypt(creds.MpesaConsumerKey)
+			if dErr != nil {
+				return nil, fmt.Errorf("stores: decrypt mpesa_consumer_key: %w", dErr)
+			}
+		}
+		if creds.MpesaConsumerSecret != "" {
+			creds.MpesaConsumerSecret, dErr = r.cipher.Decrypt(creds.MpesaConsumerSecret)
+			if dErr != nil {
+				return nil, fmt.Errorf("stores: decrypt mpesa_consumer_secret: %w", dErr)
+			}
+		}
+		if creds.AirtelMerchantID != "" {
+			creds.AirtelMerchantID, dErr = r.cipher.Decrypt(creds.AirtelMerchantID)
+			if dErr != nil {
+				return nil, fmt.Errorf("stores: decrypt airtel_merchant_id: %w", dErr)
+			}
+		}
+	}
+
+	return &creds, nil
 }
 
 // ── orders.StoreInfoReader implementation ────────────────────────────────────

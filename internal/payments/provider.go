@@ -50,6 +50,8 @@ type StoreCredentials struct {
 	MpesaShortcode   string
 	MpesaPasskey     string
 	MpesaAccountRef  string
+	MpesaConsumerKey    string
+	MpesaConsumerSecret   string
 
 	// Airtel Money
 	AirtelMerchantID string
