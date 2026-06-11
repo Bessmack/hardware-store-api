@@ -41,6 +41,8 @@ type PaymentResponse struct {
 	Instructions    string // shown to the customer (e.g. "Check your phone")
 	AwaitingPayment bool   // true = async (mobile money); false = sync (card)
 	FailureReason   string // populated when Status == "failed"
+	// RedirectURL is populated by card providers — the frontend redirects the customer to this URL to complete payment on the hosted checkout page.
+	RedirectURL string
 }
 
 // StoreCredentials holds a store's payment credentials.
