@@ -51,3 +51,12 @@ type Provider struct {
 	httpClient     *http.Client
 	cache          *cache.Cache
 }
+
+// Config is populated from config.CardConfig in main.go.
+type Config struct {
+	ConsumerKey    string
+	ConsumerSecret string
+	BaseURL        string // https://cybqa.pesapal.com/pesapalv3 (sandbox) https://pay.pesapal.com/v3 (production)
+	CallbackURL    string // https://yourapi.com/api/v1/payments/card/callback
+	RedirectURL    string // https://yourstore.co.ke/payment/complete
+}
