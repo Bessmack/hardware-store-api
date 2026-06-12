@@ -60,3 +60,79 @@ type Config struct {
 	CallbackURL    string // https://yourapi.com/api/v1/payments/card/callback
 	RedirectURL    string // https://yourstore.co.ke/payment/complete
 }
+
+func New(cfg Config, c *cache.Cache) *Provider {
+	return &Provider{
+		consumerKey:    cfg.ConsumerKey,
+		consumerSecret: cfg.ConsumerSecret,
+		baseURL:        cfg.BaseURL,
+		callbackURL:    cfg.CallbackURL,
+		redirectURL:    cfg.RedirectURL,
+		httpClient:     &http.Client{Timeout: 15 * time.Second},
+		cache:          c,
+	}
+}
+
+func (p *Provider) Name() string { return "card" }
+
+// ── Initiate — create hosted payment link ─────────────────────────────────────
+
+// Initiate registers the IPN URL with Pesapal (once, cached), submits the order, and returns the redirect URL for the customer to complete payment.
+func (p *Provider) Initiate(ctx context.Context, req payments.PaymentRequest) (*payments.PaymentResponse, error) {
+	token, err := p.getToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pesapal: failed to get token: %w", err)
+	}
+
+	// Ensure the IPN URL is registered with Pesapal
+	ipnID, err := p.ensureIPNRegistered(ctx, token)
+	if err != nil {
+		return nil, fmt.Errorf("pesapal: failed to register IPN URL: %w", err)
+	}
+
+	body := map[string]interface{}{
+		"id":              req.OrderID,
+		"currency":        req.Currency,
+		"amount":          req.Amount,
+		"description":     req.Description,
+		"callback_url":    p.redirectURL, // frontend redirect after payment
+		"redirect_mode":   "",
+		"notification_id": ipnID,
+		"billing_address": map[string]string{
+			"phone_number": req.Phone,
+			"country_code": "KE",
+		},
+	}
+
+	respBody, err := p.post(ctx, "/api/Transactions/SubmitOrderRequest", token, body)
+	if err != nil {
+		return nil, fmt.Errorf("pesapal: submit order failed: %w", err)
+	}
+
+	var resp struct {
+		OrderTrackingID    string `json:"order_tracking_id"`
+		MerchantReference  string `json:"merchant_reference"`
+		RedirectURL        string `json:"redirect_url"`
+		Error              *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf("pesapal: failed to decode submit response: %w", err)
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("pesapal: order rejected — %s", resp.Error.Message)
+	}
+	if resp.RedirectURL == "" {
+		return nil, fmt.Errorf("pesapal: no redirect URL returned")
+	}
+
+	return &payments.PaymentResponse{
+		ProviderRef:     resp.OrderTrackingID,
+		Status:          "pending",
+		Instructions:    "You will be redirected to a secure Pesapal page to complete your payment.",
+		AwaitingPayment: false, // redirect-based, not push-based
+		RedirectURL:     resp.RedirectURL,
+	}, nil
+}
