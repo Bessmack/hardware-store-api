@@ -17,6 +17,7 @@ type Config struct {
 	JWT        JWTConfig
 	Mpesa      MpesaConfig
 	Airtel     AirtelConfig
+	Card      CardConfig
 	WhatsApp   WhatsAppConfig
 	Email      EmailConfig
 	Geo        GeoConfig
@@ -79,6 +80,13 @@ type AirtelConfig struct {
 	ClientID     string
 	ClientSecret string
 	BaseURL      string
+}
+
+type CardConfig struct {
+	PesaPalKey    string
+	PesaPalSecret string
+	CallbackURL   string
+	BaseURL       string
 }
 
 // WhatsAppConfig holds Green API credentials.
@@ -212,6 +220,21 @@ func Load() (*Config, error) {
 			ClientID:     getEnv("AIRTEL_CLIENT_ID", ""),
 			ClientSecret: getEnv("AIRTEL_CLIENT_SECRET", ""),
 			BaseURL:      getEnv("AIRTEL_BASE_URL", "https://openapi.airtel.africa"),
+		},
+		Card: CardConfig{
+			PesaPalKey:    getEnv("PESAPAL_KEY", ""),
+			PesaPalSecret: getEnv("PESAPAL_SECRET", ""),
+			CallbackURL:   getEnv("PESAPAL_CALLBACK_URL", ""),
+			BaseURL:       getEnv("PESAPAL_BASE_URL", "https://pesapal.com"),
+			// For testing card payments without real card details, you can use PesaPal's sandbox environment and their test credentials:
+			// BaseURL:       "https://demo.pesapal.com",
+			// PesaPalKey:    getEnv("PESAPAL_TEST_KEY", ""),
+			// PesaPalSecret: getEnv("PESAPAL_TEST_SECRET", ""),
+			// PesaPal provides test card numbers for their sandbox environment, such as:
+			// Card Number: 4111 1111 1111 1111
+			// Expiry Date: Any future date (e.g., 12/25)
+			// CVV: Any 3 digits (e.g., 123)
+			// Note: Make sure to use the correct credentials and endpoint for the environment you are testing against (sandbox vs production).
 		},
 		WhatsApp: WhatsAppConfig{
 			APIURL:     getEnv("GREENAPI_API_URL", "https://api.green-api.com"),
