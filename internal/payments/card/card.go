@@ -136,3 +136,201 @@ func (p *Provider) Initiate(ctx context.Context, req payments.PaymentRequest) (*
 		RedirectURL:     resp.RedirectURL,
 	}, nil
 }
+
+// ── HandleCallback — verify via GetTransactionStatus ─────────────────────────
+
+// HandleCallback receives Pesapal's IPN notification and verifies the result by calling GetTransactionStatus. Pesapal does not sign its IPN payloads;
+// verification is done by pulling the definitive status from their API.
+//
+// IPN payload from Pesapal:
+//
+//	{
+//	  "OrderTrackingId":         "b945e4af-...",
+//	  "OrderMerchantReference":  "order-id",
+//	  "OrderNotificationType":   "PAYMENT"
+//	}
+func (p *Provider) HandleCallback(ctx context.Context, _ string, rawPayload []byte) (*payments.PaymentResponse, error) {
+	var ipn struct {
+		OrderTrackingID       string `json:"OrderTrackingId"`
+		OrderMerchantRef      string `json:"OrderMerchantReference"`
+		OrderNotificationType string `json:"OrderNotificationType"`
+	}
+	if err := json.Unmarshal(rawPayload, &ipn); err != nil {
+		return nil, fmt.Errorf("pesapal: failed to parse IPN: %w", err)
+	}
+
+	logger.Get().Info().
+		Str("tracking_id", ipn.OrderTrackingID).
+		Str("merchant_ref", ipn.OrderMerchantRef).
+		Str("notification_type", ipn.OrderNotificationType).
+		Msg("pesapal: IPN received")
+
+	// Only process PAYMENT notifications
+	if ipn.OrderNotificationType != "PAYMENT" {
+		return &payments.PaymentResponse{
+			ProviderRef: ipn.OrderTrackingID,
+			Status:      "pending",
+		}, nil
+	}
+
+	// Verify by calling GetTransactionStatus
+	token, err := p.getToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pesapal: failed to get token for verification: %w", err)
+	}
+
+	status, err := p.getTransactionStatus(ctx, token, ipn.OrderTrackingID)
+	if err != nil {
+		return nil, fmt.Errorf("pesapal: failed to verify transaction: %w", err)
+	}
+
+	// Pesapal status codes: 1=COMPLETED, 2=FAILED, 3=REVERSED, 0=INVALID
+	if status.StatusCode != 1 {
+		return &payments.PaymentResponse{
+			ProviderRef:   ipn.OrderTrackingID,
+			Status:        "failed",
+			FailureReason: status.PaymentStatusDescription,
+		}, nil
+	}
+
+	return &payments.PaymentResponse{
+		ProviderRef:     ipn.OrderTrackingID,
+		Status:          "success",
+		AwaitingPayment: false,
+	}, nil
+}
+
+// ── Transaction status ────────────────────────────────────────────────────────
+
+type transactionStatus struct {
+	PaymentMethod              string  `json:"payment_method"`
+	Amount                     float64 `json:"amount"`
+	ConfirmationCode           string  `json:"confirmation_code"`
+	MerchantReference          string  `json:"merchant_reference"`
+	PaymentStatusDescription   string  `json:"payment_status_description"`
+	StatusCode                 int     `json:"status_code"`
+	Status                     string  `json:"status"`
+}
+
+func (p *Provider) getTransactionStatus(ctx context.Context, token, orderTrackingID string) (*transactionStatus, error) {
+	url := fmt.Sprintf("%s/api/Transactions/GetTransactionStatus?orderTrackingId=%s",
+		p.baseURL, orderTrackingID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("pesapal: status check request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result transactionStatus
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("pesapal: failed to decode status response: %w", err)
+	}
+	return &result, nil
+}
+
+// ── IPN registration ──────────────────────────────────────────────────────────
+
+// ensureIPNRegistered returns a cached IPN ID or registers the IPN URL and
+// caches the result. The IPN ID is required on every SubmitOrderRequest.
+func (p *Provider) ensureIPNRegistered(ctx context.Context, token string) (string, error) {
+	// Return cached IPN ID if available
+	if id, err := p.cache.Get(ctx, ipnIDCacheKey); err == nil && id != "" {
+		return id, nil
+	}
+
+	body := map[string]string{
+		"url":                    p.callbackURL,
+		"ipn_notification_type":  "POST",
+	}
+
+	respBody, err := p.post(ctx, "/api/URLSetup/RegisterIPN", token, body)
+	if err != nil {
+		return "", fmt.Errorf("pesapal: IPN registration request failed: %w", err)
+	}
+
+	var resp struct {
+		IPNID   string `json:"ipn_id"`
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return "", fmt.Errorf("pesapal: failed to decode IPN response: %w", err)
+	}
+	if resp.IPNID == "" {
+		return "", fmt.Errorf("pesapal: IPN registration failed — %s", resp.Message)
+	}
+
+	// Cache the IPN ID — it does not change unless the callback URL changes
+	_ = p.cache.Set(ctx, ipnIDCacheKey, resp.IPNID, ipnIDTTL)
+
+	logger.Get().Info().Str("ipn_id", resp.IPNID).Msg("pesapal: IPN URL registered")
+	return resp.IPNID, nil
+}
+
+// ── OAuth token ───────────────────────────────────────────────────────────────
+
+func (p *Provider) getToken(ctx context.Context) (string, error) {
+	if token, err := p.cache.Get(ctx, tokenCacheKey); err == nil && token != "" {
+		return token, nil
+	}
+
+	body := map[string]string{
+		"consumer_key":    p.consumerKey,
+		"consumer_secret": p.consumerSecret,
+	}
+
+	respBody, err := p.post(ctx, "/api/Auth/RequestToken", "", body)
+	if err != nil {
+		return "", fmt.Errorf("pesapal: token request failed: %w", err)
+	}
+
+	var resp struct {
+		Token   string `json:"token"`
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return "", fmt.Errorf("pesapal: failed to decode token response: %w", err)
+	}
+	if resp.Token == "" {
+		return "", fmt.Errorf("pesapal: received empty token — %s", resp.Message)
+	}
+
+	_ = p.cache.Set(ctx, tokenCacheKey, resp.Token, tokenTTL)
+	return resp.Token, nil
+}
+
+// ── HTTP helper ───────────────────────────────────────────────────────────────
+
+func (p *Provider) post(ctx context.Context, path, token string, body interface{}) ([]byte, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+path, bytes.NewBuffer(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
