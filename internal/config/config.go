@@ -173,8 +173,8 @@ func Load() (*Config, error) {
 	_ = godotenv.Load() // .env is optional in production
 
 	// Parse all integer env vars up front
-	jwtAccessExpiry, _   := strconv.Atoi(getEnv("JWT_ACCESS_EXPIRY_MINUTES", "30"))
-	jwtRefreshExpiry, _  := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "7"))
+	accessExpiry, _  := strconv.Atoi(getEnv("JWT_ACCESS_EXPIRY_MINUTES", "30"))
+	refreshExpiry, _ := strconv.Atoi(getEnv("JWT_REFRESH_EXPIRY_DAYS", "7"))
 	smtpPort, _          := strconv.Atoi(getEnv("SMTP_PORT", "587"))
 	locationTTL, _       := strconv.Atoi(getEnv("LOCATION_CACHE_TTL_HOURS", "4"))
 	gpsTolerance, _      := strconv.Atoi(getEnv("POD_GPS_TOLERANCE_METRES", "200"))
@@ -196,9 +196,9 @@ func Load() (*Config, error) {
 			URL: getEnv("REDIS_URL", "redis://localhost:6379"),
 		},
 		JWT: JWTConfig{
-			Secret:      requireEnv("JWT_SECRET"),
-			AccessExpiryMinutes: jwtAccessExpiry,
-			RefreshExpiryDays:   jwtRefreshExpiry,
+			Secret:              requireEnv("JWT_SECRET"),
+			AccessExpiryMinutes: accessExpiry,
+			RefreshExpiryDays:   refreshExpiry,
 		},
 		Mpesa: MpesaConfig{
 			ConsumerKey:    getEnv("MPESA_CONSUMER_KEY", ""),
@@ -233,13 +233,13 @@ func Load() (*Config, error) {
 			NominatimUserAgent: getEnv("NOMINATIM_USER_AGENT", "HardwareStoreApp/1.0"),
 			OpenCageAPIKey:     getEnv("OPENCAGE_API_KEY", ""),
 		},
+		Security: SecurityConfig{
+			EncryptionKey: requireEnv("ENCRYPTION_KEY"),
+		},
 		Cloudinary: CloudinaryConfig{
 			CloudName: requireEnv("CLOUDINARY_CLOUD_NAME"),
 			APIKey:    requireEnv("CLOUDINARY_API_KEY"),
 			APISecret: requireEnv("CLOUDINARY_API_SECRET"),
-		},
-		Security: SecurityConfig{
-			EncryptionKey: requireEnv("ENCRYPTION_KEY"),
 		},
 		Rules: RulesConfig{
 			LocationCacheTTLHours: locationTTL,
