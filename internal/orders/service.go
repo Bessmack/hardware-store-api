@@ -48,7 +48,8 @@ type DeliveryFeeCalculator interface {
 // PaymentInitiator triggers a payment request with the chosen provider.
 // Implemented by payments.Service (built in the payments domain).
 type PaymentInitiator interface {
-	Initiate(ctx context.Context, req PaymentInitRequest) (*PaymentInitResult, error)
+	Initiate(ctx context.Context, req PaymentInitRequest) (*PaymentInitResult, error) // optional: returns instructions for mobile money payments, or redirect URL for card payments
+	PaymentChannel(ctx context.Context) ([]PaymentChannel, error) // optional: returns supported channels for hosted checkout pages
 }
 
 type PaymentInitRequest struct {
@@ -65,6 +66,7 @@ type PaymentInitResult struct {
 	ProviderRef     string // M-Pesa CheckoutRequestID etc.
 	Instructions    string // "Check your phone for an M-Pesa prompt"
 	AwaitingPayment bool   // true for mobile money (async), false for card (sync)
+	RedirectURL     string // for card payments — frontend redirects customer here to complete payment on hosted checkout page
 }
 
 // StoreInfoReader fetches store name and county for reference generation and responses.

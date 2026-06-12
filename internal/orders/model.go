@@ -51,6 +51,8 @@ func (current OrderStatus) CanTransitionTo(next OrderStatus) bool {
 	return false
 }
 
+type PaymentChannel string
+
 // ── Core models ───────────────────────────────────────────────────────────────
 
 type Order struct {
@@ -118,6 +120,7 @@ type PlaceOrderRequest struct {
 	VehicleType     string  `json:"vehicle_type"`
 
 	PaymentProvider string `json:"payment_provider" validate:"required,oneof=mpesa airtel card"`
+	PaymentChannel PaymentChannel `json:"payment_channel"` // optional hint for hosted checkout pages
 	Phone           string `json:"phone"` // required for mpesa / airtel
 }
 
