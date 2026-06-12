@@ -14,3 +14,29 @@
 //
 // Docs: https://developer.pesapal.com/how-to-integrate/e-commerce/api-30/api-reference
 package card
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/Bessmack/hardware-store-api/internal/payments"
+	"github.com/Bessmack/hardware-store-api/pkg/cache"
+	"github.com/Bessmack/hardware-store-api/pkg/logger"
+)
+
+const (
+	// tokenCacheKey holds the short-lived Pesapal OAuth token.
+	// Pesapal tokens expire in ~5 minutes; we cache for 4 to be safe.
+	tokenCacheKey = "pesapal:access_token"
+	tokenTTL      = 4 * time.Minute
+
+	// ipnIDCacheKey holds the registered IPN ID.
+	// This only changes if you change the IPN URL — cache for 30 days.
+	ipnIDCacheKey = "pesapal:ipn_id"
+	ipnIDTTL      = 30 * 24 * time.Hour
+)
