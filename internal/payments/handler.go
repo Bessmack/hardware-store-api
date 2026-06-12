@@ -29,6 +29,7 @@ func NewHandler(registry *Registry, confirmer PaymentConfirmer) *Handler {
 //
 //   POST /api/v1/payments/mpesa/callback/:storeID
 //   POST /api/v1/payments/airtel/callback/:storeID
+//   POST /api/v1/payments/card/callback/:storeID
 //
 // GET  /api/v1/payments/methods   — public, lists available payment methods
 
@@ -49,6 +50,12 @@ func (h *Handler) MpesaCallback(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AirtelCallback(w http.ResponseWriter, r *http.Request) {
 	storeID := chi.URLParam(r, "storeID")
 	h.handleCallback(w, r, "airtel", storeID)
+}
+
+func (h *Handler) CardCallback(w http.ResponseWriter, r *http.Request) {
+	storeID := chi.URLParam(r, "storeID")
+	// Pesapal IPN callback handling is similar to the others, but the payload structure is different. The provider's HandleCallback will parse the unique payload and extract the common fields (ProviderRef, Status, etc.) before returning the result to this shared handler logic.
+	h.handleCallback(w, r, "card", storeID)
 }
 
 // AvailableMethods returns the list of payment providers registered at startup.
