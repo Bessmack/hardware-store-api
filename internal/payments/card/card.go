@@ -40,3 +40,14 @@ const (
 	ipnIDCacheKey = "pesapal:ipn_id"
 	ipnIDTTL      = 30 * 24 * time.Hour
 )
+
+// Provider implements payments.Provider for Pesapal v3.
+type Provider struct {
+	consumerKey    string
+	consumerSecret string
+	baseURL        string // sandbox or production
+	callbackURL    string // IPN URL (our API endpoint)
+	redirectURL    string // frontend URL after payment
+	httpClient     *http.Client
+	cache          *cache.Cache
+}
