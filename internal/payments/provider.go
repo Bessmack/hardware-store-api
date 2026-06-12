@@ -23,15 +23,28 @@ type Provider interface {
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
+// PaymentChannel hints to the provider which payment method to pre-select on the hosted checkout page (Pesapal-specific for now).
+// Leaving it empty shows all available options on the checkout page.
+type PaymentChannel string
+
+const (
+	ChannelCard PaymentChannel = "CARD" // Visa / Mastercard
+	ChannelMobileMoney PaymentChannel = "MOBILE_MONEY" // M-Pesa / Airtel via Pesapal
+	ChannelBank PaymentChannel = "BANK" // bank transfer
+)
+
 // PaymentRequest is the normalised input passed to every provider.
 type PaymentRequest struct {
-	OrderID     string
-	StoreID     string
-	Amount      float64
-	Currency    string
-	Phone       string // required for mobile money providers
-	Description string
-	CallbackURL string // resolved per-provider in service.go
+	OrderID        string
+	StoreID        string
+	Amount         float64
+	Currency       string
+	Phone          string // required for mobile money providers
+	Description    string
+	CallbackURL    string // resolved per-provider in service.go
+	// PaymentChannel is an optional hint for hosted checkout pages.
+	// Pesapal uses this to open directly on the selected payment tab.
+	PaymentChannel PaymentChannel
 }
 
 // PaymentResponse is the normalised output from every provider.
