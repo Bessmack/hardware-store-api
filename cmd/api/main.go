@@ -49,6 +49,7 @@ func (a *paymentInitiatorAdapter) Initiate(ctx context.Context, req orders.Payme
 		Phone:       req.Phone,
 		Provider:    req.Provider,
 		Description: req.Description,
+		PaymentChannel: payments.PaymentChannel(req.PaymentChannel),
 	})
 	if err != nil {
 		return nil, err
@@ -60,10 +61,6 @@ func (a *paymentInitiatorAdapter) Initiate(ctx context.Context, req orders.Payme
 		AwaitingPayment: result.AwaitingPayment,
 		RedirectURL:     result.RedirectURL,
 	}, nil
-}
-
-func (a *paymentInitiatorAdapter) PaymentChannel(ctx context.Context) ([]orders.PaymentChannel, error) {
-	return nil, nil
 }
 
 func main() {
@@ -152,13 +149,27 @@ func main() {
 		DefaultPasskey:   cfg.Mpesa.Passkey,
 	}, cacheClient, storeRepo))
 	paymentRegistry.Register(cardprovider.New(cardprovider.Config{
-		ConsumerKey:    cfg.Card.PesaPalKey,
-		ConsumerSecret: cfg.Card.PesaPalSecret,
+		ConsumerKey:    cfg.Card.ConsumerKey,
+		ConsumerSecret: cfg.Card.ConsumerSecret,
 		BaseURL:        cfg.Card.BaseURL,
 		CallbackURL:    cfg.Card.CallbackURL,
-		RedirectURL:    cfg.App.URL,
+		RedirectURL:    cfg.Card.RedirectURL,
 	}, cacheClient))
-	paymentService := payments.NewService(paymentRegistry, storeRepo, cfg.Mpesa, cfg.App.URL)
+	// Airtel callback URL lives on our server, not Airtel's.
+	// Derive it from MPESA_CALLBACK_URL by swapping the provider segment:
+	//   https://ngrok.../api/v1/payments/mpesa/callback
+	//   → https://ngrok.../api/v1/payments/airtel/callback
+	// Both callbacks are served by the same API instance.
+	airtelCallbackURL := ""
+	if cfg.Mpesa.CallbackURL != "" {
+		airtelCallbackURL = cfg.Mpesa.CallbackURL[:len(cfg.Mpesa.CallbackURL)-len("mpesa/callback")] + "airtel/callback"
+	}
+
+	paymentService := payments.NewService(paymentRegistry, storeRepo, payments.ServiceConfig{
+		MpesaCallbackURL:  cfg.Mpesa.CallbackURL,
+		AirtelCallbackURL: airtelCallbackURL,
+		CardCallbackURL:   cfg.Card.CallbackURL,
+	})
 
 	// ── 9. Notifications ──────────────────────────────────────────────────────
 	// Declared early because several services (orders, pod) depend on it.
@@ -257,7 +268,10 @@ func main() {
 	cartHandler := cart.NewHandler(cartService)
 	wishlistHandler := wishlist.NewHandler(wishlistService, locationService)
 	deliveryHandler := delivery.NewHandler(deliveryService)
-	orderHandler := orders.NewHandler(orderService)
+	orderHandler     := orders.NewHandler(orderService)
+	paymentHandler   := payments.NewHandler(paymentRegistry, orderService)
+
+	// Suppress unused variable warnings
 
 	// Suppress unused variable warnings until server/routes.go is wired in.
 	// Remove each _ = ... line as you register the corresponding handler in routes.go.
@@ -275,7 +289,7 @@ func main() {
 	_ = wishlistHandler
 	_ = deliveryHandler
 	_ = orderHandler
-
+	_ = paymentHandler
 	// ── 12. Router ────────────────────────────────────────────────────────────
 	// TODO: uncomment once server/routes.go is built
 	// router := server.NewRouter(
@@ -283,6 +297,7 @@ func main() {
 	//     authHandler, userHandler, storeHandler, geoHandler,
 	//     productHandler, inventoryHandler, cartHandler,
 	//     wishlistHandler, deliveryHandler, orderHandler,
+	//     paymentHandler,
 	// )
 
 	// ── 13. HTTP Server ───────────────────────────────────────────────────────

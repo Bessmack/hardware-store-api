@@ -83,9 +83,10 @@ type AirtelConfig struct {
 }
 
 type CardConfig struct {
-	PesaPalKey    string
-	PesaPalSecret string
+	ConsumerKey    string
+	ConsumerSecret string
 	CallbackURL   string
+	RedirectURL    string
 	BaseURL       string
 }
 
@@ -222,9 +223,10 @@ func Load() (*Config, error) {
 			BaseURL:      getEnv("AIRTEL_BASE_URL", "https://openapi.airtel.africa"),
 		},
 		Card: CardConfig{
-			PesaPalKey:    getEnv("PESAPAL_KEY", ""),
-			PesaPalSecret: getEnv("PESAPAL_SECRET", ""),
+			ConsumerKey:    getEnv("PESAPAL_CONSUMER_KEY", ""),
+			ConsumerSecret: getEnv("PESAPAL_CONSUMER_SECRET", ""),
 			CallbackURL:   getEnv("PESAPAL_CALLBACK_URL", ""),
+			RedirectURL:    getEnv("PESAPAL_REDIRECT_URL", ""),
 			BaseURL:       getEnv("PESAPAL_BASE_URL", "https://pesapal.com"),
 			// For testing card payments without real card details, you can use PesaPal's sandbox environment and their test credentials:
 			// BaseURL:       "https://demo.pesapal.com",

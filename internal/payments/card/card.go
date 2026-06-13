@@ -94,6 +94,7 @@ func (p *Provider) Initiate(ctx context.Context, req payments.PaymentRequest) (*
 		"id":              req.OrderID,
 		"currency":        req.Currency,
 		"amount":          req.Amount,
+		"payment_method":  string(req.PaymentChannel),
 		"description":     req.Description,
 		"callback_url":    p.redirectURL, // frontend redirect after payment
 		"redirect_mode":   "",
