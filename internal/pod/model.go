@@ -67,3 +67,32 @@ type ResolveDisputeRequest struct {
 }
 
 // ── Response types ────────────────────────────────────────────────────────────
+
+// PODResponse is what staff see for a proof of delivery record.
+type PODResponse struct {
+	OrderID     string     `json:"order_id"`
+	OTPVerified bool       `json:"otp_verified"`
+	DeliveryLat float64    `json:"delivery_lat,omitempty"`
+	DeliveryLng float64    `json:"delivery_lng,omitempty"`
+	DistanceM   float64    `json:"distance_m,omitempty"`
+	PhotoURL    string     `json:"photo_url,omitempty"`
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
+}
+
+// DisputeResponse is the customer-facing view of their dispute.
+type DisputeResponse struct {
+	ID          string    `json:"id"`
+	OrderID     string    `json:"order_id"`
+	Description string    `json:"description"`
+	EvidenceURL string    `json:"evidence_url,omitempty"`
+	Status      string    `json:"status"`
+	Resolution  string    `json:"resolution,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// SubmitPODResponse is returned to the delivery person after a successful submission.
+type SubmitPODResponse struct {
+	Message     string  `json:"message"`
+	DistanceM   float64 `json:"distance_m"`
+	OrderRef    string  `json:"order_ref"`
+}
