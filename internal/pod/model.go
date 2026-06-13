@@ -5,8 +5,7 @@ import "time"
 // ── Core models ───────────────────────────────────────────────────────────────
 
 // ProofOfDelivery is one row from the proof_of_delivery table.
-// Created when an order is dispatched; completed when the delivery person
-// submits the OTP, GPS, and photo at the delivery address.
+// Created when an order is dispatched; completed when the delivery person submits the OTP, GPS, and photo at the delivery address.
 type ProofOfDelivery struct {
 	ID          string     `db:"id"`
 	OrderID     string     `db:"order_id"`
@@ -26,4 +25,18 @@ type ProofOfDelivery struct {
 
 	DeliveredAt *time.Time `db:"delivered_at"`
 	CreatedAt   time.Time  `db:"created_at"`
+}
+
+// Dispute is raised by a customer after delivery within the dispute window.
+type Dispute struct {
+	ID          string     `db:"id"`
+	OrderID     string     `db:"order_id"`
+	CustomerID  string     `db:"customer_id"`
+	Description string     `db:"description"`
+	EvidenceURL string     `db:"evidence_url"`    // optional Cloudinary URL
+	EvidencePublicID string `db:"evidence_public_id"`
+	Status      string     `db:"status"`          // "open" | "resolved" | "rejected"
+	Resolution  string     `db:"resolution"`      // staff notes on outcome
+	CreatedAt   time.Time  `db:"created_at"`
+	UpdatedAt   time.Time  `db:"updated_at"`
 }
