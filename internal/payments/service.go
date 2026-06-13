@@ -56,6 +56,7 @@ func (s *Service) Initiate(ctx context.Context, req InitiateRequest) (*InitiateR
 		ProviderRef:     resp.ProviderRef,
 		Instructions:    resp.Instructions,
 		AwaitingPayment: resp.AwaitingPayment,
+		RedirectURL:     resp.RedirectURL,
 	}, nil
 }
 
@@ -95,4 +96,5 @@ type InitiateResult struct {
 	ProviderRef     string
 	Instructions    string
 	AwaitingPayment bool
+	RedirectURL     string
 }

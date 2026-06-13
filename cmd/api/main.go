@@ -20,6 +20,10 @@ import (
 	notifEmail "github.com/Bessmack/hardware-store-api/internal/notifications/email"
 	notifWhatsApp "github.com/Bessmack/hardware-store-api/internal/notifications/whatsapp"
 	"github.com/Bessmack/hardware-store-api/internal/orders"
+	"github.com/Bessmack/hardware-store-api/internal/payments"
+	"github.com/Bessmack/hardware-store-api/internal/payments/airtel"
+	cardprovider "github.com/Bessmack/hardware-store-api/internal/payments/card"
+	"github.com/Bessmack/hardware-store-api/internal/payments/mpesa"
 	"github.com/Bessmack/hardware-store-api/internal/products"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
 	"github.com/Bessmack/hardware-store-api/internal/stores"
@@ -31,6 +35,36 @@ import (
 	"github.com/Bessmack/hardware-store-api/pkg/logger"
 	"github.com/redis/go-redis/v9"
 )
+
+type paymentInitiatorAdapter struct {
+	service *payments.Service
+}
+
+func (a *paymentInitiatorAdapter) Initiate(ctx context.Context, req orders.PaymentInitRequest) (*orders.PaymentInitResult, error) {
+	result, err := a.service.Initiate(ctx, payments.InitiateRequest{
+		OrderID:     req.OrderID,
+		StoreID:     req.StoreID,
+		Amount:      req.Amount,
+		Currency:    req.Currency,
+		Phone:       req.Phone,
+		Provider:    req.Provider,
+		Description: req.Description,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &orders.PaymentInitResult{
+		ProviderRef:     result.ProviderRef,
+		Instructions:    result.Instructions,
+		AwaitingPayment: result.AwaitingPayment,
+		RedirectURL:     result.RedirectURL,
+	}, nil
+}
+
+func (a *paymentInitiatorAdapter) PaymentChannel(ctx context.Context) ([]orders.PaymentChannel, error) {
+	return nil, nil
+}
 
 func main() {
 	// ── 1. Config ─────────────────────────────────────────────────────────────
@@ -89,21 +123,44 @@ func main() {
 
 	// ── 7. Repositories ───────────────────────────────────────────────────────
 	// All repositories must be declared before any service that depends on them.
-	userRepo      := users.NewRepository(db)
+	userRepo := users.NewRepository(db)
 	// Initialize crypto cipher for encrypting sensitive fields in DB
 	cipher, err := crypto.NewCipher(cfg.Security.EncryptionKey)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to initialize crypto cipher")
 	}
-	storeRepo     := stores.NewRepository(db, cipher)
-	productRepo   := products.NewRepository(db)
+	storeRepo := stores.NewRepository(db, cipher)
+	productRepo := products.NewRepository(db)
 	inventoryRepo := inventory.NewRepository(db)
-	cartRepo      := cart.NewRepository(db)
-	wishlistRepo  := wishlist.NewRepository(db)
-	deliveryRepo  := delivery.NewRepository(db)
-	orderRepo     := orders.NewRepository(db)
+	cartRepo := cart.NewRepository(db)
+	wishlistRepo := wishlist.NewRepository(db)
+	deliveryRepo := delivery.NewRepository(db)
+	orderRepo := orders.NewRepository(db)
 
-	// ── 8. Notifications ──────────────────────────────────────────────────────
+	// ── 8. Payments ───────────────────────────────────────────────────────────
+	paymentRegistry := payments.NewRegistry()
+	paymentRegistry.Register(airtel.New(airtel.Config{
+		ClientID:     cfg.Airtel.ClientID,
+		ClientSecret: cfg.Airtel.ClientSecret,
+		BaseURL:      cfg.Airtel.BaseURL,
+	}, cacheClient, storeRepo))
+	paymentRegistry.Register(mpesa.New(mpesa.Config{
+		ConsumerKey:      cfg.Mpesa.ConsumerKey,
+		ConsumerSecret:   cfg.Mpesa.ConsumerSecret,
+		BaseURL:          cfg.Mpesa.BaseURL,
+		DefaultShortcode: cfg.Mpesa.Shortcode,
+		DefaultPasskey:   cfg.Mpesa.Passkey,
+	}, cacheClient, storeRepo))
+	paymentRegistry.Register(cardprovider.New(cardprovider.Config{
+		ConsumerKey:    cfg.Card.PesaPalKey,
+		ConsumerSecret: cfg.Card.PesaPalSecret,
+		BaseURL:        cfg.Card.BaseURL,
+		CallbackURL:    cfg.Card.CallbackURL,
+		RedirectURL:    cfg.App.URL,
+	}, cacheClient))
+	paymentService := payments.NewService(paymentRegistry, storeRepo, cfg.Mpesa, cfg.App.URL)
+
+	// ── 9. Notifications ──────────────────────────────────────────────────────
 	// Declared early because several services (orders, pod) depend on it.
 	notifRegistry := notifications.NewRegistry()
 	notifRegistry.Register(notifWhatsApp.New(notifWhatsApp.Config{
@@ -124,7 +181,7 @@ func main() {
 
 	// ── 9. Services ───────────────────────────────────────────────────────────
 
-	userService  := users.NewService(userRepo)
+	userService := users.NewService(userRepo)
 	storeService := stores.NewService(storeRepo)
 
 	// Geo — reverse geocoder + location cache (4-hour Redis TTL)
@@ -135,23 +192,23 @@ func main() {
 	)
 	// storeService implements geo.StoreLister — no circular import
 	locationService := geo.NewLocationService(cacheClient, reverseGeocoder, storeService)
-	geocoder        := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
-	autocompleter   := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
+	geocoder := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
+	autocompleter := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
 
-	productService  := products.NewService(productRepo)
+	productService := products.NewService(productRepo)
 	inventoryService := inventory.NewService(inventoryRepo)
 
 	// Cart depends on inventory (price locking) and delivery (weight thresholds)
 	cartService := cart.NewService(
 		cartRepo,
-		inventoryRepo,   // cart.InventoryReader  — GetCurrentPrice
-		deliveryRepo,    // cart.WeightThresholdReader — GetWeightThresholds
+		inventoryRepo, // cart.InventoryReader  — GetCurrentPrice
+		deliveryRepo,  // cart.WeightThresholdReader — GetWeightThresholds
 	)
 
 	// Wishlist depends on inventory for live pricing
 	wishlistService := wishlist.NewService(
 		wishlistRepo,
-		inventoryRepo,   // wishlist.LivePriceFetcher — GetLivePrice
+		inventoryRepo, // wishlist.LivePriceFetcher — GetLivePrice
 	)
 
 	deliveryService := delivery.NewService(deliveryRepo, storeRepo)
@@ -167,6 +224,7 @@ func main() {
 		userRepo,        // orders.CustomerInfoReader — GetCustomerInfo
 		notifService,    // orders.OrderNotifier
 	)
+	orderService.SetPaymentInitiator(&paymentInitiatorAdapter{service: paymentService})
 
 	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
 		JWTSecret:           cfg.JWT.Secret,
@@ -175,31 +233,31 @@ func main() {
 	})
 
 	// ── 10. Middleware ────────────────────────────────────────────────────────
-	authMw       := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
+	authMw := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
 	storeScopeMw := middleware.NewStoreScopeMiddleware(userService)
 
 	// Raw *redis.Client needed by redis_rate (cache package wraps it)
 	redisOpts, _ := redis.ParseURL(cfg.Redis.URL)
-	redisRaw     := redis.NewClient(redisOpts)
+	redisRaw := redis.NewClient(redisOpts)
 	defer redisRaw.Close()
 
 	rateLimiter := middleware.NewRateLimiter(redisRaw)
-	corsMw      := middleware.CORS(middleware.CORSConfig{
+	corsMw := middleware.CORS(middleware.CORSConfig{
 		AppURL:        cfg.App.URL,
 		IsDevelopment: cfg.IsDevelopment(),
 	})
 
 	// ── 11. Handlers ──────────────────────────────────────────────────────────
-	authHandler      := auth.NewHandler(authService, locationService)
-	userHandler      := users.NewHandler(userService)
-	storeHandler     := stores.NewHandler(storeService)
-	geoHandler       := geo.NewHandler(locationService, autocompleter, geocoder)
-	productHandler   := products.NewHandler(productService, locationService)
+	authHandler := auth.NewHandler(authService, locationService)
+	userHandler := users.NewHandler(userService)
+	storeHandler := stores.NewHandler(storeService)
+	geoHandler := geo.NewHandler(locationService, autocompleter, geocoder)
+	productHandler := products.NewHandler(productService, locationService)
 	inventoryHandler := inventory.NewHandler(inventoryService)
-	cartHandler      := cart.NewHandler(cartService)
-	wishlistHandler  := wishlist.NewHandler(wishlistService, locationService)
-	deliveryHandler  := delivery.NewHandler(deliveryService)
-	orderHandler     := orders.NewHandler(orderService)
+	cartHandler := cart.NewHandler(cartService)
+	wishlistHandler := wishlist.NewHandler(wishlistService, locationService)
+	deliveryHandler := delivery.NewHandler(deliveryService)
+	orderHandler := orders.NewHandler(orderService)
 
 	// Suppress unused variable warnings until server/routes.go is wired in.
 	// Remove each _ = ... line as you register the corresponding handler in routes.go.

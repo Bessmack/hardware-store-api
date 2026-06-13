@@ -51,7 +51,16 @@ func (current OrderStatus) CanTransitionTo(next OrderStatus) bool {
 	return false
 }
 
+// PaymentChannel hints to a hosted checkout provider which payment tab to
+// pre-select when the customer lands on the payment page. Currently used by
+// Pesapal — leaving it empty shows all available options.
 type PaymentChannel string
+
+const (
+	PaymentChannelCard        PaymentChannel = "CARD"         // Visa / Mastercard
+	PaymentChannelMobileMoney PaymentChannel = "MOBILE_MONEY" // M-Pesa / Airtel via Pesapal
+	PaymentChannelBank        PaymentChannel = "BANK"         // bank transfer
+)
 
 // ── Core models ───────────────────────────────────────────────────────────────
 
@@ -215,7 +224,18 @@ type StatusHistoryEntry struct {
 // For card: includes redirect URL.
 type PlaceOrderResponse struct {
 	Order               OrderResponse `json:"order"`
-	PaymentInstructions string        `json:"payment_instructions"`
-	// M-Pesa specific — tells the frontend the STK push is pending
-	AwaitingPayment     bool          `json:"awaiting_payment"`
+	PaymentInstructions string        `json:"payment_instructions"` // true for M-Pesa / Airtel (async push) — frontend shows "check your phone"
+	AwaitingPayment     bool          `json:"awaiting_payment"` // Populated for card payments — frontend redirects customer to this Pesapal URL
+	RedirectURL         string        `json:"redirect_url,omitempty"`
+}
+
+type PaymentInitRequest struct {
+	OrderID        string
+	StoreID        string
+	Amount         float64
+	Currency       string
+	Phone          string
+	Provider       string         // "mpesa" | "airtel" | "card"
+	Description    string
+	PaymentChannel PaymentChannel // optional hint for hosted checkout pages
 }

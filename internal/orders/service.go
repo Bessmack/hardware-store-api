@@ -49,17 +49,11 @@ type DeliveryFeeCalculator interface {
 // Implemented by payments.Service (built in the payments domain).
 type PaymentInitiator interface {
 	Initiate(ctx context.Context, req PaymentInitRequest) (*PaymentInitResult, error) // optional: returns instructions for mobile money payments, or redirect URL for card payments
-	PaymentChannel(ctx context.Context) ([]PaymentChannel, error) // optional: returns supported channels for hosted checkout pages
+	PaymentChannel(ctx context.Context) ([]PaymentChannel, error)                     // optional: returns supported channels for hosted checkout pages
 }
 
-type PaymentInitRequest struct {
-	OrderID     string
-	StoreID     string
-	Amount      float64
-	Currency    string
-	Phone       string
-	Provider    string // "mpesa" | "airtel" | "card"
-	Description string
+type SetPaymentInitiator interface {
+	SetPaymentInitiator(initiator PaymentInitiator)
 }
 
 type PaymentInitResult struct {
@@ -93,14 +87,14 @@ type OrderNotifier interface {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 type Service struct {
-	repo        *Repository
-	cart        CartReader
-	stock       StockManager
-	delivery    DeliveryFeeCalculator
-	payment     PaymentInitiator
-	stores      StoreInfoReader
-	customers   CustomerInfoReader
-	notifier    OrderNotifier
+	repo      *Repository
+	cart      CartReader
+	stock     StockManager
+	delivery  DeliveryFeeCalculator
+	payment   PaymentInitiator
+	stores    StoreInfoReader
+	customers CustomerInfoReader
+	notifier  OrderNotifier
 }
 
 func NewService(
@@ -118,6 +112,10 @@ func NewService(
 		delivery: delivery, payment: payment,
 		stores: stores, customers: customers, notifier: notifier,
 	}
+}
+
+func (s *Service) SetPaymentInitiator(initiator PaymentInitiator) {
+	s.payment = initiator
 }
 
 // ── PlaceOrder ────────────────────────────────────────────────────────────────
@@ -483,6 +481,24 @@ func (s *Service) ConfirmPayment(ctx context.Context, orderID, providerRef strin
 		return err
 	}
 
+	if order.Status != StatusPlaced {
+		// This can happen if the callback is received after the customer cancels the order.
+		// In this case, we should not move it back to "confirmed" — just log and exit.
+		logger.Get().Warn().
+			Str("order", orderID).
+			Str("current_status", string(order.Status)).
+			Msg("orders: payment confirmed for order not in 'placed' status — no status change applied")
+		return nil
+	}
+
+	// Check for idempotency: if the order is already marked as paid, do not attempt to confirm again
+	if order.PaymentStatus == "paid" {
+		logger.Get().Info().
+			Str("order", orderID).
+			Msg("orders: payment already marked as paid — skipping status update")
+		return nil
+	}
+
 	if err := s.repo.UpdateStatus(ctx, orderID, StatusConfirmed, "Payment received", ""); err != nil {
 		return fmt.Errorf("orders: failed to confirm order status: %w", err)
 	}
@@ -493,6 +509,16 @@ func (s *Service) ConfirmPayment(ctx context.Context, orderID, providerRef strin
 		storeName, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
 		go s.notifier.OrderConfirmed(phone, email, name, order.Reference, storeName, order.GrandTotal)
 	}
+
+	return nil
+}
+
+func (s *Service) FailPayment(ctx context.Context, orderID, providerRef, reason string) error {
+	if err := s.repo.UpdatePaymentStatus(ctx, orderID, "failed", providerRef); err != nil {
+		return fmt.Errorf("orders: failed to update payment status: %w", err)
+	}
+
+	// Optionally, could also cancel the order here or notify staff for manual review.
 
 	return nil
 }
