@@ -148,8 +148,9 @@ func (h *Handler) TrackOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 // CancelOrder lets a customer cancel their own order.
-// Only allowed when the order is in the "placed" state (before payment confirms).
-// Once payment is confirmed, only store staff can cancel.
+
+// Allowed when status is "placed" or "confirmed" — i.e. before the store starts packing. 
+// Once the order reaches "preparing" or beyond, the customer must contact the store directly. Only staff can cancel at that point.
 //
 // Body: { reason? }
 func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {

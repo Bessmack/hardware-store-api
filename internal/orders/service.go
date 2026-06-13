@@ -346,7 +346,14 @@ func (s *Service) TrackOrder(ctx context.Context, customerID, orderID string) (*
 }
 
 // CancelOrder cancels an order if it is in a cancellable state.
-// Customers can cancel at "placed" only — after payment confirms, staff handle it.
+
+// Customer cancellation rules:
+//   - "placed"    → allowed (payment not yet confirmed)
+//   - "confirmed" → allowed (payment confirmed but store not yet packing)
+//   - "preparing" → NOT allowed (store has started packing — contact store)
+//   - beyond      → NOT allowed
+//
+// Staff can cancel at any stage up to dispatch via UpdateStatus.
 func (s *Service) CancelOrder(ctx context.Context, customerID, orderID string, req CancelOrderRequest) error {
 	order, err := s.repo.GetByID(ctx, orderID)
 	if err != nil {
@@ -355,11 +362,33 @@ func (s *Service) CancelOrder(ctx context.Context, customerID, orderID string, r
 	if order.CustomerID != customerID {
 		return ErrForbidden
 	}
-	if order.Status != StatusPlaced {
-		return fmt.Errorf("orders: only orders that have not yet been paid can be cancelled by customers — contact the store for further assistance")
+
+	// Customers may only cancel before the store starts packing.
+	// Once status reaches "preparing", physical work has begun and the order cannot be self-cancelled — the customer must contact the store.
+	customerCancellable := map[OrderStatus]bool{
+		StatusPlaced:    true,
+		StatusConfirmed: true,
+	}
+	if !customerCancellable[order.Status] {
+		return fmt.Errorf(
+			"orders: cancellation is no longer available — your order is already being prepared. "+
+				"Please contact the store directly for assistance",
+		)
 	}
 
-	if err := s.repo.UpdateStatus(ctx, orderID, StatusCancelled, req.Reason, customerID); err != nil {
+	// If payment was already confirmed, flag for manual refund processing.
+	// Refund automation is not implemented — staff must action this manually.
+	note := req.Reason
+	if order.Status == StatusConfirmed {
+		note = "[REFUND REQUIRED] " + req.Reason
+		logger.Get().Warn().
+			Str("order", orderID).
+			Str("payment_provider", order.PaymentProvider).
+			Str("grand_total", fmt.Sprintf("%.2f %s", order.GrandTotal, order.Currency)).
+			Msg("orders: customer cancelled a paid order — manual refund required")
+	}
+
+	if err := s.repo.UpdateStatus(ctx, orderID, StatusCancelled, note, customerID); err != nil {
 		return err
 	}
 
