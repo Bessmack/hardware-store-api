@@ -640,21 +640,5 @@ func (s *Service) restoreStockForOrder(ctx context.Context, orderID, storeID str
 	}
 }
 
-// buildOrderItemResponses enriches order items with currency.
-func buildOrderItemResponses(items []OrderItem, currency string) []OrderItemResponse {
-	result := make([]OrderItemResponse, len(items))
-	for i, item := range items {
-		result[i] = OrderItemResponse{
-			ProductID:   item.ProductID,
-			ProductName: item.ProductName,
-			Quantity:    item.Quantity,
-			UnitPrice:   item.UnitPrice,
-			Subtotal:    item.Subtotal,
-			Currency:    currency,
-		}
-	}
-	return result
-}
-
 // unused import guard
 var _ = time.Now
