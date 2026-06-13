@@ -40,3 +40,30 @@ type Dispute struct {
 	CreatedAt   time.Time  `db:"created_at"`
 	UpdatedAt   time.Time  `db:"updated_at"`
 }
+
+// ── Request types ─────────────────────────────────────────────────────────────
+
+// SubmitPODRequest is sent by the delivery person when they arrive.
+// All three layers must pass for the delivery to be confirmed.
+type SubmitPODRequest struct {
+	OrderID string  `json:"order_id" validate:"required"`
+	OTP     string  `json:"otp"      validate:"required"`
+	Lat     float64 `json:"lat"      validate:"required"`
+	Lng     float64 `json:"lng"      validate:"required"`
+	// Photo is uploaded as multipart/form-data — not in this struct.
+	// The handler extracts it from r.FormFile("photo").
+}
+
+// RaiseDisputeRequest is sent by a customer after delivery.
+type RaiseDisputeRequest struct {
+	Description string `json:"description" validate:"required,min=10"`
+	// Evidence photo is uploaded as multipart/form-data — optional.
+}
+
+// ResolveDisputeRequest is used by staff to close a dispute.
+type ResolveDisputeRequest struct {
+	Status     string `json:"status"     validate:"required,oneof=resolved rejected"`
+	Resolution string `json:"resolution" validate:"required"`
+}
+
+// ── Response types ────────────────────────────────────────────────────────────
