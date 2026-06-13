@@ -24,6 +24,7 @@ import (
 	"github.com/Bessmack/hardware-store-api/internal/payments/airtel"
 	cardprovider "github.com/Bessmack/hardware-store-api/internal/payments/card"
 	"github.com/Bessmack/hardware-store-api/internal/payments/mpesa"
+	"github.com/Bessmack/hardware-store-api/internal/pod"
 	"github.com/Bessmack/hardware-store-api/internal/products"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
 	"github.com/Bessmack/hardware-store-api/internal/stores"
@@ -42,13 +43,13 @@ type paymentInitiatorAdapter struct {
 
 func (a *paymentInitiatorAdapter) Initiate(ctx context.Context, req orders.PaymentInitRequest) (*orders.PaymentInitResult, error) {
 	result, err := a.service.Initiate(ctx, payments.InitiateRequest{
-		OrderID:     req.OrderID,
-		StoreID:     req.StoreID,
-		Amount:      req.Amount,
-		Currency:    req.Currency,
-		Phone:       req.Phone,
-		Provider:    req.Provider,
-		Description: req.Description,
+		OrderID:        req.OrderID,
+		StoreID:        req.StoreID,
+		Amount:         req.Amount,
+		Currency:       req.Currency,
+		Phone:          req.Phone,
+		Provider:       req.Provider,
+		Description:    req.Description,
 		PaymentChannel: payments.PaymentChannel(req.PaymentChannel),
 	})
 	if err != nil {
@@ -231,11 +232,28 @@ func main() {
 		inventoryRepo,   // orders.StockManager      — ReduceStock, RestoreStock
 		deliveryService, // orders.DeliveryFeeCalculator — CalculateFee
 		nil,             // orders.PaymentInitiator  — wired when payments domain is built
+		nil,             // orders.PODDispatcher     — wired when POD domain is built
 		storeRepo,       // orders.StoreInfoReader   — GetStoreInfo
 		userRepo,        // orders.CustomerInfoReader — GetCustomerInfo
 		notifService,    // orders.OrderNotifier
 	)
 	orderService.SetPaymentInitiator(&paymentInitiatorAdapter{service: paymentService})
+
+	podRepo := pod.NewRepository(db)
+	podService := pod.NewService(
+		podRepo,
+		orderRepo,
+		orderService,
+		userRepo,
+		notifService,
+		storageClient,
+		pod.ServiceConfig{
+			OTPLength:          cfg.Rules.OTPLength,
+			GPSToleranceMetres: float64(cfg.Rules.PODGPSToleranceMetres),
+			DisputeWindowHours: cfg.Rules.DisputeWindowHours,
+		},
+	)
+	orderService.SetPODDispatcher(podService)
 
 	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
 		JWTSecret:           cfg.JWT.Secret,
@@ -268,8 +286,9 @@ func main() {
 	cartHandler := cart.NewHandler(cartService)
 	wishlistHandler := wishlist.NewHandler(wishlistService, locationService)
 	deliveryHandler := delivery.NewHandler(deliveryService)
-	orderHandler     := orders.NewHandler(orderService)
-	paymentHandler   := payments.NewHandler(paymentRegistry, orderService)
+	orderHandler := orders.NewHandler(orderService)
+	podHandler := pod.NewHandler(podService)
+	paymentHandler := payments.NewHandler(paymentRegistry, orderService)
 
 	// Suppress unused variable warnings
 
@@ -289,6 +308,7 @@ func main() {
 	_ = wishlistHandler
 	_ = deliveryHandler
 	_ = orderHandler
+	_ = podHandler
 	_ = paymentHandler
 	// ── 12. Router ────────────────────────────────────────────────────────────
 	// TODO: uncomment once server/routes.go is built

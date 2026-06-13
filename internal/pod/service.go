@@ -58,9 +58,9 @@ type PODNotifier interface {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 type ServiceConfig struct {
-	OTPLength            int     // from cfg.Rules.OTPLength (default 6)
-	GPSToleranceMetres   float64 // from cfg.Rules.PODGPSToleranceMetres (default 200)
-	DisputeWindowHours   int     // from cfg.Rules.DisputeWindowHours (default 24)
+	OTPLength          int     // from cfg.Rules.OTPLength (default 6)
+	GPSToleranceMetres float64 // from cfg.Rules.PODGPSToleranceMetres (default 200)
+	DisputeWindowHours int     // from cfg.Rules.DisputeWindowHours (default 24)
 }
 
 type Service struct {
@@ -101,10 +101,7 @@ func NewService(
 //
 // This satisfies the orders.PODDispatcher interface.
 func (s *Service) Dispatch(ctx context.Context, orderID, customerID, customerPhone, customerName, orderRef string) error {
-	code, err := otp.Generate(s.cfg.OTPLength)
-	if err != nil {
-		return fmt.Errorf("pod: failed to generate OTP: %w", err)
-	}
+	code := otp.Generate(s.cfg.OTPLength)
 
 	if _, err := s.repo.Create(ctx, orderID, code); err != nil {
 		return fmt.Errorf("pod: failed to create POD record: %w", err)
@@ -174,13 +171,14 @@ func (s *Service) Submit(ctx context.Context, deliveryPersonID string, req Submi
 		return nil, errors.New("a delivery photo is required")
 	}
 
-	uploadResult, err := s.storage.Upload(ctx, photo, photoHeader.Filename, storage.FolderDeliveryPhotos)
+	photoPublicID, err := s.storage.Upload(ctx, photo, photoHeader.Filename, storage.FolderDeliveryPhotos)
 	if err != nil {
 		return nil, fmt.Errorf("pod: photo upload failed: %w", err)
 	}
+	photoURL := s.storage.URL(photoPublicID)
 
 	// All three layers passed — record the submission
-	if err := s.repo.Submit(ctx, req.OrderID, uploadResult.URL, uploadResult.PublicID, req.Lat, req.Lng, distanceM); err != nil {
+	if err := s.repo.Submit(ctx, req.OrderID, photoURL, photoPublicID, req.Lat, req.Lng, distanceM); err != nil {
 		return nil, fmt.Errorf("pod: failed to record submission: %w", err)
 	}
 
@@ -230,12 +228,12 @@ func (s *Service) RaiseDispute(ctx context.Context, customerID, orderID string, 
 	evidenceURL := ""
 	evidencePublicID := ""
 	if evidence != nil {
-		result, err := s.storage.Upload(ctx, evidence, evidenceHeader.Filename, storage.FolderDisputeEvidence)
+		publicID, err := s.storage.Upload(ctx, evidence, evidenceHeader.Filename, storage.FolderDisputeEvidence)
 		if err != nil {
 			return nil, fmt.Errorf("pod: evidence photo upload failed: %w", err)
 		}
-		evidenceURL = result.URL
-		evidencePublicID = result.PublicID
+		evidenceURL = s.storage.URL(publicID)
+		evidencePublicID = publicID
 	}
 
 	dispute, err := s.repo.CreateDispute(ctx, orderID, customerID, req.Description, evidenceURL, evidencePublicID)

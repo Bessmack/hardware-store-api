@@ -5,7 +5,8 @@ import "time"
 // ── Core models ───────────────────────────────────────────────────────────────
 
 // ProofOfDelivery is one row from the proof_of_delivery table.
-// Created when an order is dispatched; completed when the delivery person submits the OTP, GPS, and photo at the delivery address.
+// Created when an order is dispatched; completed when the delivery person
+// submits the OTP, GPS, and photo at the delivery address.
 type ProofOfDelivery struct {
 	ID          string     `db:"id"`
 	OrderID     string     `db:"order_id"`

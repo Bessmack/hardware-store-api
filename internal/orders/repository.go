@@ -7,13 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bessmack/hardware-store-api/internal/pod"
 	"github.com/Bessmack/hardware-store-api/pkg/database"
 	"github.com/jackc/pgx/v5"
 )
 
 var (
-	ErrNotFound       = errors.New("order not found")
-	ErrForbidden      = errors.New("you do not have permission to access this order")
+	ErrNotFound         = errors.New("order not found")
+	ErrForbidden        = errors.New("you do not have permission to access this order")
 	ErrCannotTransition = errors.New("this status change is not allowed")
 )
 
@@ -157,6 +158,36 @@ func (r *Repository) GetByPaymentProviderRef(ctx context.Context, providerRef st
 		return nil, ErrNotFound
 	}
 	return o, err
+}
+
+// ── pod.OrderReader implementation ───────────────────────────────────────────
+ 
+// GetDeliveryInfo returns the minimal order data the POD service needs.
+// Returns delivery coordinates, customer ID, and order reference.
+func (r *Repository) GetDeliveryInfo(ctx context.Context, orderID string) (*pod.DeliveryInfo, error) {
+	row := r.db.Pool.QueryRow(ctx, `
+		SELECT
+			id, reference, customer_id, fulfilling_store_id,
+			COALESCE(delivery_lat, 0), COALESCE(delivery_lng, 0),
+			status::text,
+			COALESCE(currency, \'KES\')
+		FROM orders WHERE id = $1
+	`, orderID)
+ 
+	var info pod.DeliveryInfo
+	var status string
+	if err := row.Scan(
+		&info.OrderID, &info.OrderRef, &info.CustomerID, &info.StoreID,
+		&info.DeliveryLat, &info.DeliveryLng,
+		&status, &info.Currency,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("orders: GetDeliveryInfo scan error: %w", err)
+	}
+	info.Status = status
+	return &info, nil
 }
 
 // GetItems fetches all items for an order.

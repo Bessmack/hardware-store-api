@@ -71,6 +71,13 @@ type CustomerInfoReader interface {
 	GetCustomerInfo(ctx context.Context, customerID string) (name, phone, email string, err error)
 }
 
+// PODDispatcher is called when an order is dispatched for delivery.
+// Implemented by pod.Service — defined here to break the circular import
+// (pod imports orders for OrderReader; orders imports pod would be circular).
+type PODDispatcher interface {
+	Dispatch(ctx context.Context, orderID, customerID, customerPhone, customerName, orderRef string) error
+}
+
 // OrderNotifier sends order-related notifications via all channels.
 // Implemented by notifications.Service.
 type OrderNotifier interface {
@@ -88,6 +95,7 @@ type Service struct {
 	stock     StockManager
 	delivery  DeliveryFeeCalculator
 	payment   PaymentInitiator
+	pod       PODDispatcher // optional — set via SetPODDispatcher after NewService
 	stores    StoreInfoReader
 	customers CustomerInfoReader
 	notifier  OrderNotifier
@@ -99,19 +107,32 @@ func NewService(
 	stock StockManager,
 	delivery DeliveryFeeCalculator,
 	payment PaymentInitiator,
+	pod PODDispatcher,
 	stores StoreInfoReader,
 	customers CustomerInfoReader,
 	notifier OrderNotifier,
 ) *Service {
 	return &Service{
-		repo: repo, cart: cart, stock: stock,
-		delivery: delivery, payment: payment,
-		stores: stores, customers: customers, notifier: notifier,
+		repo:      repo,
+		cart:      cart,
+		stock:     stock,
+		delivery:  delivery,
+		payment:   payment,
+		pod:       pod,
+		stores:    stores,
+		customers: customers,
+		notifier:  notifier,
 	}
 }
 
 func (s *Service) SetPaymentInitiator(initiator PaymentInitiator) {
 	s.payment = initiator
+}
+
+// SetPODDispatcher injects the POD dispatcher after construction.
+// Called in main.go after both orderService and podService are created.
+func (s *Service) SetPODDispatcher(d PODDispatcher) {
+	s.pod = d
 }
 
 // ── PlaceOrder ────────────────────────────────────────────────────────────────
@@ -469,19 +490,29 @@ func (s *Service) UpdateStatus(ctx context.Context, orderID string, req UpdateSt
 		return "", err
 	}
 
+	// When dispatching, trigger POD: generate OTP, create record, notify customer
+	if req.Status == StatusOutForDelivery && s.pod != nil {
+		name, phone, _, _ := s.customers.GetCustomerInfo(ctx, order.CustomerID)
+		go func() {
+			if err := s.pod.Dispatch(ctx, orderID, order.CustomerID, phone, name, order.Reference); err != nil {
+				logger.Get().Error().Err(err).Str("order", orderID).Msg("orders: POD dispatch failed")
+			}
+		}()
+	}
+
 	// Notify customer of status change (non-fatal, run in background)
 	if s.notifier != nil {
 		name, phone, email, _ := s.customers.GetCustomerInfo(ctx, order.CustomerID)
 		storeName, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
 		details := StatusDetails[req.Status]
 		go func() {
-			if req.Status == StatusOutForDelivery {
-				// OTP notification is handled by POD domain after this returns
+			switch req.Status {
+			case StatusOutForDelivery:
 				s.notifier.OrderStatusChanged(phone, email, name, order.Reference,
 					details.Label, fmt.Sprintf("Your order is on its way from %s.", storeName))
-			} else if req.Status == StatusDelivered {
+			case StatusDelivered:
 				s.notifier.OrderDelivered(phone, email, name, order.Reference)
-			} else {
+			default:
 				s.notifier.OrderStatusChanged(phone, email, name, order.Reference,
 					details.Label, details.Description)
 			}
@@ -553,6 +584,20 @@ func (s *Service) FailPayment(ctx context.Context, providerRef string) error {
 		return fmt.Errorf("orders: failed to update payment status: %w", err)
 	}
 	return nil
+}
+
+// MarkDelivered advances an order to "delivered" status.
+// Called by pod.Service after all three POD layers pass (OTP + GPS + photo).
+// Satisfies the pod.OrderStatusUpdater interface.
+func (s *Service) MarkDelivered(ctx context.Context, orderID, changedBy string) error {
+	order, err := s.repo.GetByID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if !order.Status.CanTransitionTo(StatusDelivered) {
+		return fmt.Errorf("orders: cannot mark order as delivered from status %q", order.Status)
+	}
+	return s.repo.UpdateStatus(ctx, orderID, StatusDelivered, "Delivery confirmed via POD", changedBy)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

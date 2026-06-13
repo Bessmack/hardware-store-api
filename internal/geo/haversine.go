@@ -53,8 +53,8 @@ func FindNearestStore(stores []StoreInfo, lat, lng float64) *StoreInfo {
 	return nearest
 }
 
-// DistanceMetres returns the distance between two coordinate pairs in metres.
-// Used by the POD GPS verification layer.
+// DistanceMetres returns the distance between two coordinates in metres.
+// Used by the POD service to check if the delivery person is within the GPS tolerance of the delivery address.
 func DistanceMetres(lat1, lng1, lat2, lng2 float64) float64 {
 	return HaversineDistance(lat1, lng1, lat2, lng2) * 1000
 }
