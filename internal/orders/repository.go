@@ -170,7 +170,7 @@ func (r *Repository) GetDeliveryInfo(ctx context.Context, orderID string) (*pod.
 			id, reference, customer_id, fulfilling_store_id,
 			COALESCE(delivery_lat, 0), COALESCE(delivery_lng, 0),
 			status::text,
-			COALESCE(currency, \'KES\')
+			COALESCE(currency, 'KES')
 		FROM orders WHERE id = $1
 	`, orderID)
  
