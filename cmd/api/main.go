@@ -55,7 +55,6 @@ func (a *paymentInitiatorAdapter) Initiate(ctx context.Context, req orders.Payme
 	if err != nil {
 		return nil, err
 	}
-
 	return &orders.PaymentInitResult{
 		ProviderRef:     result.ProviderRef,
 		Instructions:    result.Instructions,
@@ -87,8 +86,7 @@ func main() {
 	l.Info().Msg("database connected")
 
 	// Run migrations before starting the server to ensure the schema is up-to-date.
-	// In production, consider running migrations as a separate step during deployment
-	// to avoid downtime on large tables.
+	// In production, consider running migrations as a separate step during deployment to avoid downtime on large tables.
 	if err := database.RunMigrations(cfg.Database.URL, "./migrations"); err != nil {
 		l.Fatal().Err(err).Msg("migrations failed")
 	}
@@ -112,28 +110,27 @@ func main() {
 		l.Fatal().Err(err).Msg("failed to initialise cloudinary")
 	}
 	l.Info().Msg("storage connected")
-	_ = storageClient // injected into pod domain when built
 
 	// ── 6. Apply configurable business rules ──────────────────────────────────
-	// Override package-level defaults with values from .env so behaviour
-	// can be tuned without recompiling.
+
+	// Override package-level defaults with values from .env so behaviour can be tuned without recompiling.
 	geo.LocationTTL = time.Duration(cfg.Rules.LocationCacheTTLHours) * time.Hour
 
 	// ── 7. Repositories ───────────────────────────────────────────────────────
 	// All repositories must be declared before any service that depends on them.
 	userRepo := users.NewRepository(db)
-	// Initialize crypto cipher for encrypting sensitive fields in DB
 	cipher, err := crypto.NewCipher(cfg.Security.EncryptionKey)
 	if err != nil {
 		l.Fatal().Err(err).Msg("failed to initialize crypto cipher")
 	}
-	storeRepo := stores.NewRepository(db, cipher)
-	productRepo := products.NewRepository(db)
+	storeRepo     := stores.NewRepository(db, cipher)
+	productRepo   := products.NewRepository(db)
 	inventoryRepo := inventory.NewRepository(db)
-	cartRepo := cart.NewRepository(db)
-	wishlistRepo := wishlist.NewRepository(db)
-	deliveryRepo := delivery.NewRepository(db)
-	orderRepo := orders.NewRepository(db)
+	cartRepo      := cart.NewRepository(db)
+	wishlistRepo  := wishlist.NewRepository(db)
+	deliveryRepo  := delivery.NewRepository(db)
+	orderRepo     := orders.NewRepository(db)
+	podRepo       := pod.NewRepository(db)
 
 	// ── 8. Payments ───────────────────────────────────────────────────────────
 	paymentRegistry := payments.NewRegistry()
@@ -156,16 +153,12 @@ func main() {
 		CallbackURL:    cfg.Card.CallbackURL,
 		RedirectURL:    cfg.Card.RedirectURL,
 	}, cacheClient))
-	// Airtel callback URL lives on our server, not Airtel's.
-	// Derive it from MPESA_CALLBACK_URL by swapping the provider segment:
-	//   https://ngrok.../api/v1/payments/mpesa/callback
-	//   → https://ngrok.../api/v1/payments/airtel/callback
-	// Both callbacks are served by the same API instance.
+
+	// Airtel callback URL lives on our server — derive from M-Pesa callback URL
 	airtelCallbackURL := ""
 	if cfg.Mpesa.CallbackURL != "" {
 		airtelCallbackURL = cfg.Mpesa.CallbackURL[:len(cfg.Mpesa.CallbackURL)-len("mpesa/callback")] + "airtel/callback"
 	}
-
 	paymentService := payments.NewService(paymentRegistry, storeRepo, payments.ServiceConfig{
 		MpesaCallbackURL:  cfg.Mpesa.CallbackURL,
 		AirtelCallbackURL: airtelCallbackURL,
@@ -173,7 +166,6 @@ func main() {
 	})
 
 	// ── 9. Notifications ──────────────────────────────────────────────────────
-	// Declared early because several services (orders, pod) depend on it.
 	notifRegistry := notifications.NewRegistry()
 	notifRegistry.Register(notifWhatsApp.New(notifWhatsApp.Config{
 		APIURL:     cfg.WhatsApp.APIURL,
@@ -191,62 +183,54 @@ func main() {
 	}))
 	notifService := notifications.NewService(notifRegistry)
 
-	// ── 9. Services ───────────────────────────────────────────────────────────
-
-	userService := users.NewService(userRepo)
+	// ── 10. Services ──────────────────────────────────────────────────────────
+	userService  := users.NewService(userRepo)
 	storeService := stores.NewService(storeRepo)
 
-	// Geo — reverse geocoder + location cache (4-hour Redis TTL)
 	reverseGeocoder := geo.NewReverseGeocoder(
 		cfg.Geo.OpenCageAPIKey,
 		cfg.Geo.NominatimBaseURL,
 		cfg.Geo.NominatimUserAgent,
 	)
-	// storeService implements geo.StoreLister — no circular import
 	locationService := geo.NewLocationService(cacheClient, reverseGeocoder, storeService)
-	geocoder := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
-	autocompleter := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
+	geocoder        := geo.NewGeocoder(cfg.Geo.NominatimBaseURL, cfg.Geo.NominatimUserAgent)
+	autocompleter   := geo.NewAutocompleter(cfg.Geo.PhotonBaseURL)
 
-	productService := products.NewService(productRepo)
+	productService   := products.NewService(productRepo)
 	inventoryService := inventory.NewService(inventoryRepo)
 
-	// Cart depends on inventory (price locking) and delivery (weight thresholds)
 	cartService := cart.NewService(
 		cartRepo,
 		inventoryRepo, // cart.InventoryReader  — GetCurrentPrice
 		deliveryRepo,  // cart.WeightThresholdReader — GetWeightThresholds
 	)
-
-	// Wishlist depends on inventory for live pricing
 	wishlistService := wishlist.NewService(
 		wishlistRepo,
-		inventoryRepo, // wishlist.LivePriceFetcher — GetLivePrice
+		inventoryRepo,
 	)
-
 	deliveryService := delivery.NewService(deliveryRepo, storeRepo)
 
-	// Orders depends on nearly everything — declared last
+	// Orders — payment and POD wired after construction via setters
 	orderService := orders.NewService(
 		orderRepo,
 		cartRepo,        // orders.CartReader        — GetItemsForOrder, ClearCart
 		inventoryRepo,   // orders.StockManager      — ReduceStock, RestoreStock
 		deliveryService, // orders.DeliveryFeeCalculator — CalculateFee
-		nil,             // orders.PaymentInitiator  — wired when payments domain is built
-		nil,             // orders.PODDispatcher     — wired when POD domain is built
+		nil,             // orders.PaymentInitiator  — wired when payments domain is built (set below)
+		nil,             // orders.PODDispatcher     — wired when POD domain is built (set below)
 		storeRepo,       // orders.StoreInfoReader   — GetStoreInfo
 		userRepo,        // orders.CustomerInfoReader — GetCustomerInfo
 		notifService,    // orders.OrderNotifier
 	)
 	orderService.SetPaymentInitiator(&paymentInitiatorAdapter{service: paymentService})
 
-	podRepo := pod.NewRepository(db)
 	podService := pod.NewService(
 		podRepo,
-		orderRepo,
-		orderService,
-		userRepo,
-		notifService,
-		storageClient,
+		orderRepo,     // pod.OrderReader
+		orderService,  // pod.OrderStatusUpdater
+		userRepo,      // pod.CustomerInfoReader
+		notifService,  // pod.PODNotifier
+		storageClient, // storage.Storage
 		pod.ServiceConfig{
 			OTPLength:          cfg.Rules.OTPLength,
 			GPSToleranceMetres: float64(cfg.Rules.PODGPSToleranceMetres),
@@ -261,34 +245,33 @@ func main() {
 		RefreshExpiryDays:   cfg.JWT.RefreshExpiryDays,
 	})
 
-	// ── 10. Middleware ────────────────────────────────────────────────────────
-	authMw := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
+	// ── 11. Middleware ────────────────────────────────────────────────────────
+	authMw       := middleware.NewAuthMiddleware(cfg.JWT.Secret, userService)
 	storeScopeMw := middleware.NewStoreScopeMiddleware(userService)
 
-	// Raw *redis.Client needed by redis_rate (cache package wraps it)
 	redisOpts, _ := redis.ParseURL(cfg.Redis.URL)
-	redisRaw := redis.NewClient(redisOpts)
+	redisRaw     := redis.NewClient(redisOpts)
 	defer redisRaw.Close()
 
 	rateLimiter := middleware.NewRateLimiter(redisRaw)
-	corsMw := middleware.CORS(middleware.CORSConfig{
+	corsMw      := middleware.CORS(middleware.CORSConfig{
 		AppURL:        cfg.App.URL,
 		IsDevelopment: cfg.IsDevelopment(),
 	})
 
-	// ── 11. Handlers ──────────────────────────────────────────────────────────
-	authHandler := auth.NewHandler(authService, locationService)
-	userHandler := users.NewHandler(userService)
-	storeHandler := stores.NewHandler(storeService)
-	geoHandler := geo.NewHandler(locationService, autocompleter, geocoder)
-	productHandler := products.NewHandler(productService, locationService)
+	// ── 12. Handlers ──────────────────────────────────────────────────────────
+	authHandler      := auth.NewHandler(authService, locationService)
+	userHandler      := users.NewHandler(userService)
+	storeHandler     := stores.NewHandler(storeService)
+	geoHandler       := geo.NewHandler(locationService, autocompleter, geocoder)
+	productHandler   := products.NewHandler(productService, locationService)
 	inventoryHandler := inventory.NewHandler(inventoryService)
-	cartHandler := cart.NewHandler(cartService)
-	wishlistHandler := wishlist.NewHandler(wishlistService, locationService)
-	deliveryHandler := delivery.NewHandler(deliveryService)
-	orderHandler := orders.NewHandler(orderService)
-	podHandler := pod.NewHandler(podService)
-	paymentHandler := payments.NewHandler(paymentRegistry, orderService)
+	cartHandler      := cart.NewHandler(cartService)
+	wishlistHandler  := wishlist.NewHandler(wishlistService, locationService)
+	deliveryHandler  := delivery.NewHandler(deliveryService)
+	orderHandler     := orders.NewHandler(orderService)
+	podHandler       := pod.NewHandler(podService)
+	paymentHandler   := payments.NewHandler(paymentRegistry, orderService)
 
 	// Suppress unused variable warnings
 
@@ -310,17 +293,18 @@ func main() {
 	_ = orderHandler
 	_ = podHandler
 	_ = paymentHandler
-	// ── 12. Router ────────────────────────────────────────────────────────────
+
+	// ── 13. Router ────────────────────────────────────────────────────────────
 	// TODO: uncomment once server/routes.go is built
 	// router := server.NewRouter(
 	//     cfg, authMw, storeScopeMw, rateLimiter, corsMw,
 	//     authHandler, userHandler, storeHandler, geoHandler,
 	//     productHandler, inventoryHandler, cartHandler,
 	//     wishlistHandler, deliveryHandler, orderHandler,
-	//     paymentHandler,
+	//     podHandler, paymentHandler,
 	// )
 
-	// ── 13. HTTP Server ───────────────────────────────────────────────────────
+	// ── 14. HTTP Server ───────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%s", cfg.App.Port),
 		// Handler: router,
@@ -329,7 +313,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// ── 14. Graceful shutdown ─────────────────────────────────────────────────
+	// ── 15. Graceful shutdown ─────────────────────────────────────────────────
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
