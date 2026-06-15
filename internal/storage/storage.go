@@ -6,16 +6,16 @@ import (
 )
 
 // Storage defines the interface for all file storage operations.
-// Currently implemented by Cloudinary — swap the implementation in main.go
-// without touching any other part of the codebase.
+// Currently implemented by Cloudinary — swap the implementation in main.go without touching any other part of the codebase.
 type Storage interface {
-	// Upload stores a file under the given folder and returns its public ID.
+	// Upload stores a file and returns its Cloudinary public ID.
+	// Parameter order: ctx, file, filename, folder
 	// The public ID is what gets saved to the database (not the full URL).
-	Upload(ctx context.Context, file io.Reader, folder, filename string) (string, error)
+	// Call URL(publicID) to get the CDN-served URL.
+	Upload(ctx context.Context, file io.Reader, filename, folder string) (string, error)
 
 	// Move relocates a file from one public ID to another.
-	// Used to promote a disputed POD photo from delivery-photos/ to dispute-evidence/
-	// before the auto-delete rule would remove it.
+	// Used to promote a disputed POD photo from delivery-photos/ to dispute-evidence/ before the auto-delete rule would remove it.
 	Move(ctx context.Context, fromPublicID, toPublicID string) error
 
 	// Delete permanently removes a file by its public ID.

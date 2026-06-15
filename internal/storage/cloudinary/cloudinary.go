@@ -9,7 +9,7 @@ import (
 	"github.com/cloudinary/cloudinary-go/v2/api/uploader"
 )
 
-// boolPtr returns a pointer to the provided bool.
+// boolPtr returns a pointer to the provided bool. Used because the cloudinary SDK expects *bool in several Upload/Rename/Destroy params.
 func boolPtr(b bool) *bool { return &b }
 
 // Storage implements the storage.Storage interface using Cloudinary.
@@ -31,14 +31,11 @@ func New(cfg Config) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cloudinary: failed to initialise client: %w", err)
 	}
-
-	return &Storage{
-		cld:       cld,
-		cloudName: cfg.CloudName,
-	}, nil
+	return &Storage{cld: cld, cloudName: cfg.CloudName}, nil
 }
 
 // Upload stores a file in the given folder and returns its Cloudinary public ID.
+// Parameter order matches storage.Storage interface: (ctx, file, filename, folder)
 //
 // Transformations applied on upload:
 //   - Resized to max 800px wide (preserves aspect ratio)
@@ -46,7 +43,7 @@ func New(cfg Config) (*Storage, error) {
 //
 // This mirrors the client-side compression done in the delivery PWA — the server-side
 // transformation acts as a safety net for any file that bypasses the client.
-func (s *Storage) Upload(ctx context.Context, file io.Reader, folder, filename string) (string, error) {
+func (s *Storage) Upload(ctx context.Context, file io.Reader, filename, folder string) (string, error) {
 	publicID := fmt.Sprintf("%s/%s", folder, filename)
 
 	resp, err := s.cld.Upload.Upload(ctx, file, uploader.UploadParams{
@@ -66,7 +63,7 @@ func (s *Storage) Upload(ctx context.Context, file io.Reader, folder, filename s
 	return resp.PublicID, nil
 }
 
-// Move relocates a file to a new public ID (effectively a rename/folder change).
+// Move relocates a file to a new public ID.
 // Used to move a disputed photo from delivery-photos/ → dispute-evidence/
 // before the 30-day auto-delete rule removes it.
 func (s *Storage) Move(ctx context.Context, fromPublicID, toPublicID string) error {
@@ -74,18 +71,15 @@ func (s *Storage) Move(ctx context.Context, fromPublicID, toPublicID string) err
 		FromPublicID: fromPublicID,
 		ToPublicID:   toPublicID,
 		Overwrite:    boolPtr(true),
-		// Invalidate the CDN cache for the old URL
 		Invalidate: boolPtr(true),
 	})
 	if err != nil {
 		return fmt.Errorf("cloudinary: move failed (%s → %s): %w", fromPublicID, toPublicID, err)
 	}
-
 	return nil
 }
 
 // Delete permanently removes a file by its public ID.
-// Also invalidates the CDN cache so the old URL stops serving the image.
 func (s *Storage) Delete(ctx context.Context, publicID string) error {
 	_, err := s.cld.Upload.Destroy(ctx, uploader.DestroyParams{
 		PublicID:   publicID,
@@ -94,12 +88,11 @@ func (s *Storage) Delete(ctx context.Context, publicID string) error {
 	if err != nil {
 		return fmt.Errorf("cloudinary: delete failed (%s): %w", publicID, err)
 	}
-
 	return nil
 }
 
 // URL returns the CDN URL for a given public ID.
-// The URL is constructed without an API call — Cloudinary URLs are deterministic.
+// Constructed without an API call — Cloudinary URLs are deterministic.
 func (s *Storage) URL(publicID string) string {
 	return fmt.Sprintf("https://res.cloudinary.com/%s/image/upload/%s", s.cloudName, publicID)
 }
