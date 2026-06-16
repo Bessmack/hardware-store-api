@@ -59,10 +59,11 @@ type PaymentInitResult struct {
 	RedirectURL     string // for card payments — frontend redirects customer here to complete payment on hosted checkout page
 }
 
-// StoreInfoReader fetches store name and county for reference generation and responses.
+// StoreInfoReader fetches store metadata for reference generation and responses.
 // Implemented by stores.Repository.
+// Currency is the store's trading currency (e.g. "KES", "UGX") — all financial figures on an order use this currency, not the cart item's currency.
 type StoreInfoReader interface {
-	GetStoreInfo(ctx context.Context, storeID string) (name, county string, err error)
+	GetStoreInfo(ctx context.Context, storeID string) (name, county, currency string, err error)
 }
 
 // CustomerInfoReader fetches customer contact details for notifications.
