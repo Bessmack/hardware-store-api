@@ -79,3 +79,11 @@ type Period struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
 }
+
+// LowStockItem is a product that is below its low_stock_alert threshold.
+type LowStockItem struct {
+	ProductID     string `json:"product_id"`
+	ProductName   string `json:"product_name"`
+	StockQuantity int    `json:"stock_quantity"`
+	LowStockAlert int    `json:"low_stock_alert"`
+}
