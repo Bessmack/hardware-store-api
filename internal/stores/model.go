@@ -1,6 +1,43 @@
 package stores
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// SupportedCurrencies lists every ISO 4217 currency code the platform accepts.
+// Each store is assigned exactly one currency at creation time and all prices, fees and payments in that store are denominated in that currency.
+// To add a new country, add its currency code here.
+var SupportedCurrencies = []string{
+	"KES", // Kenya
+	"UGX", // Uganda
+	"TZS", // Tanzania
+	"RWF", // Rwanda
+	"ETB", // Ethiopia
+	"MWK", // Malawi
+	"ZMW", // Zambia
+}
+
+// IsValidCurrency returns true if the given ISO 4217 code is supported.
+func IsValidCurrency(code string) bool {
+	for _, c := range SupportedCurrencies {
+		if c == code {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateCurrency returns a descriptive error when the currency is not supported.
+func ValidateCurrency(code string) error {
+	if code == "" {
+		return fmt.Errorf("currency is required — must be one of: %v", SupportedCurrencies)
+	}
+	if !IsValidCurrency(code) {
+		return fmt.Errorf("currency %q is not supported — must be one of: %v", code, SupportedCurrencies)
+	}
+	return nil
+}
 
 // ── Core model ────────────────────────────────────────────────────────────────
 
