@@ -106,3 +106,20 @@ type StoreBreakdown struct {
 	TotalOrders int     `json:"total_orders"`
 	Revenue     float64 `json:"revenue"`
 }
+
+// ── Query filters ─────────────────────────────────────────────────────────────
+
+// ReportFilter controls the period for any report.
+// Both fields default to the current calendar month if not provided.
+type ReportFilter struct {
+	From time.Time
+	To   time.Time
+}
+
+// DefaultFilter returns a filter for the current calendar month.
+func DefaultFilter() ReportFilter {
+	now := time.Now()
+	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	to := now
+	return ReportFilter{From: from, To: to}
+}
