@@ -96,3 +96,13 @@ type ProductSalesSummary struct {
 	Revenue     float64 `json:"revenue"`
 	Currency    string  `json:"currency"`
 }
+
+// StoreBreakdown is one store's contribution to the global report.
+type StoreBreakdown struct {
+	StoreID     string  `json:"store_id"`
+	StoreName   string  `json:"store_name"`
+	County      string  `json:"county"`
+	Currency    string  `json:"currency"`
+	TotalOrders int     `json:"total_orders"`
+	Revenue     float64 `json:"revenue"`
+}
