@@ -43,3 +43,39 @@ type StoreReport struct {
 
 	GeneratedAt time.Time `json:"generated_at"`
 }
+
+// ── Global report (superadmin only) ──────────────────────────────────────────
+
+// GlobalReport aggregates key metrics across all stores.
+// Superadmin only.
+type GlobalReport struct {
+	Period  Period `json:"period"`
+
+	// Platform-wide totals
+	TotalStores    int     `json:"total_stores"`
+	ActiveStores   int     `json:"active_stores"`
+	TotalOrders    int     `json:"total_orders"`
+	TotalRevenue   float64 `json:"total_revenue"` // note: mixed currencies, use with caution
+	TotalCustomers int     `json:"total_customers"`
+	NewCustomers   int     `json:"new_customers"` // registered within the period
+
+	// Per-store breakdown
+	StoreBreakdowns []StoreBreakdown `json:"store_breakdown"`
+
+	// Platform-wide payment split
+	PaymentsByProvider map[string]int `json:"payments_by_provider"`
+
+	// Disputes
+	TotalDisputes int `json:"total_disputes"`
+	OpenDisputes  int `json:"open_disputes"`
+
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
+// ── Supporting types ──────────────────────────────────────────────────────────
+
+// Period is the date range for a report.
+type Period struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
