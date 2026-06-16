@@ -87,3 +87,12 @@ type LowStockItem struct {
 	StockQuantity int    `json:"stock_quantity"`
 	LowStockAlert int    `json:"low_stock_alert"`
 }
+
+// ProductSalesSummary shows how a product performed in the period.
+type ProductSalesSummary struct {
+	ProductID   string  `json:"product_id"`
+	ProductName string  `json:"product_name"`
+	UnitsSold   int     `json:"units_sold"`
+	Revenue     float64 `json:"revenue"`
+	Currency    string  `json:"currency"`
+}
