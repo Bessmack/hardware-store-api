@@ -194,3 +194,108 @@ func (r *Repository) GetStoreReport(ctx context.Context, storeID string, f Repor
 
 	return report, nil
 }
+
+// ── Global report ─────────────────────────────────────────────────────────────
+
+// GetGlobalReport assembles a platform-wide report across all stores.
+func (r *Repository) GetGlobalReport(ctx context.Context, f ReportFilter) (*GlobalReport, error) {
+	report := &GlobalReport{
+		Period:             Period{From: f.From, To: f.To},
+		PaymentsByProvider: make(map[string]int),
+		GeneratedAt:        time.Now(),
+	}
+
+	// ── Platform totals ───────────────────────────────────────────────────────
+	if err := r.db.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM stores)                         AS total_stores,
+			(SELECT COUNT(*) FROM stores WHERE is_active = TRUE)  AS active_stores,
+			(SELECT COUNT(*) FROM users WHERE role = 'customer')  AS total_customers,
+			(SELECT COUNT(*) FROM users
+			  WHERE role = 'customer' AND created_at BETWEEN $1 AND $2) AS new_customers
+	`, f.From, f.To).Scan(
+		&report.TotalStores,
+		&report.ActiveStores,
+		&report.TotalCustomers,
+		&report.NewCustomers,
+	); err != nil {
+		return nil, fmt.Errorf("reports: platform totals query failed: %w", err)
+	}
+
+	// ── Order + revenue totals across all stores ──────────────────────────────
+	if err := r.db.Pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(grand_total), 0)
+		FROM orders
+		WHERE payment_status = 'paid'
+		  AND created_at BETWEEN $1 AND $2
+	`, f.From, f.To).Scan(&report.TotalOrders, &report.TotalRevenue); err != nil {
+		return nil, fmt.Errorf("reports: global order totals failed: %w", err)
+	}
+
+	// ── Payment method split ──────────────────────────────────────────────────
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT COALESCE(payment_provider, 'unknown'), COUNT(*)
+		FROM orders
+		WHERE payment_status = 'paid'
+		  AND created_at BETWEEN $1 AND $2
+		GROUP BY payment_provider
+	`, f.From, f.To)
+	if err != nil {
+		return nil, fmt.Errorf("reports: global payment split failed: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider string
+		var cnt int
+		if err := rows.Scan(&provider, &cnt); err != nil {
+			return nil, err
+		}
+		report.PaymentsByProvider[provider] = cnt
+	}
+	rows.Close()
+
+	// ── Per-store breakdown ───────────────────────────────────────────────────
+	rows, err = r.db.Pool.Query(ctx, `
+		SELECT
+			s.id,
+			s.name,
+			COALESCE(s.county, ''),
+			COALESCE(s.currency, 'KES'),
+			COUNT(o.id)                   AS total_orders,
+			COALESCE(SUM(o.grand_total), 0) AS revenue
+		FROM stores s
+		LEFT JOIN orders o
+			ON  o.fulfilling_store_id = s.id
+			AND o.payment_status = 'paid'
+			AND o.created_at BETWEEN $1 AND $2
+		GROUP BY s.id, s.name, s.county, s.currency
+		ORDER BY revenue DESC
+	`, f.From, f.To)
+	if err != nil {
+		return nil, fmt.Errorf("reports: store breakdown query failed: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b StoreBreakdown
+		if err := rows.Scan(&b.StoreID, &b.StoreName, &b.County, &b.Currency, &b.TotalOrders, &b.Revenue); err != nil {
+			return nil, err
+		}
+		report.StoreBreakdowns = append(report.StoreBreakdowns, b)
+	}
+	rows.Close()
+
+	// ── Disputes ──────────────────────────────────────────────────────────────
+	if err := r.db.Pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (WHERE status = 'open')
+		FROM disputes
+		WHERE created_at BETWEEN $1 AND $2
+	`, f.From, f.To).Scan(&report.TotalDisputes, &report.OpenDisputes); err != nil {
+		return nil, fmt.Errorf("reports: global disputes query failed: %w", err)
+	}
+
+	return report, nil
+}
