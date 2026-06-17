@@ -59,3 +59,4 @@ node_modules/
 # Optional: ignore go module download cache if accidentally added
 /pkg/mod/
 .VSCodeCounter
+test_endpoints.sh
