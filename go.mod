@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-playground/validator/v10 v10.30.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.20.0
@@ -14,10 +15,7 @@ require (
 	golang.org/x/crypto v0.52.0
 )
 
-require (
-	github.com/golang-migrate/migrate/v4 v4.19.1 // indirect
-	github.com/lib/pq v1.10.9 // indirect
-)
+require github.com/lib/pq v1.10.9 // indirect
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
