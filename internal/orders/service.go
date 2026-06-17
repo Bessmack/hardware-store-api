@@ -171,7 +171,6 @@ func (s *Service) PlaceOrder(ctx context.Context, customerID, sessionID string, 
 
 	// 3. Compute totals
 	var itemsTotal float64
-	currency := cartItems[0].Currency
 	for _, item := range cartItems {
 		itemsTotal += item.UnitPrice * float64(item.Quantity)
 	}
@@ -196,8 +195,8 @@ func (s *Service) PlaceOrder(ctx context.Context, customerID, sessionID string, 
 
 	grandTotal := itemsTotal + deliveryFee
 
-	// 5. Get store info for reference generation
-	storeName, county, err := s.stores.GetStoreInfo(ctx, req.StoreID)
+	// 5. Get store info for reference generation (also obtain store currency)
+	storeName, county, currency, err := s.stores.GetStoreInfo(ctx, req.StoreID)
 	if err != nil {
 		return nil, fmt.Errorf("orders: could not load store info: %w", err)
 	}
@@ -312,7 +311,7 @@ func (s *Service) GetOwnOrder(ctx context.Context, customerID, orderID string) (
 	if order.CustomerID != customerID {
 		return nil, ErrForbidden
 	}
-	storeName, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
+	storeName, _, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
 	resp := s.buildOrderResponse(order, storeName, order.Currency)
 	return &resp, nil
 }
@@ -325,7 +324,7 @@ func (s *Service) ListOwnOrders(ctx context.Context, customerID string, page, pe
 	}
 	result := make([]OrderResponse, len(orders))
 	for i, o := range orders {
-		storeName, _, _ := s.stores.GetStoreInfo(ctx, o.FulfillingStoreID)
+		storeName, _, _, _ := s.stores.GetStoreInfo(ctx, o.FulfillingStoreID)
 		result[i] = s.buildOrderResponse(&o, storeName, o.Currency)
 	}
 	return result, nil
@@ -393,7 +392,7 @@ func (s *Service) CancelOrder(ctx context.Context, customerID, orderID string, r
 	}
 	if !customerCancellable[order.Status] {
 		return fmt.Errorf(
-			"orders: cancellation is no longer available — your order is already being prepared. "+
+			"orders: cancellation is no longer available — your order is already being prepared. " +
 				"Please contact the store directly for assistance",
 		)
 	}
@@ -432,7 +431,7 @@ func (s *Service) GetForStore(ctx context.Context, storeID, orderID string) (*St
 		return nil, ErrForbidden
 	}
 
-	storeName, _, _ := s.stores.GetStoreInfo(ctx, storeID)
+	storeName, _, _, _ := s.stores.GetStoreInfo(ctx, storeID)
 	name, phone, email, _ := s.customers.GetCustomerInfo(ctx, order.CustomerID)
 	history, _ := s.repo.GetStatusHistory(ctx, orderID)
 
@@ -464,7 +463,7 @@ func (s *Service) ListForStore(ctx context.Context, storeID string, filters Orde
 	if err != nil {
 		return nil, err
 	}
-	storeName, _, _ := s.stores.GetStoreInfo(ctx, storeID)
+	storeName, _, _, _ := s.stores.GetStoreInfo(ctx, storeID)
 
 	result := make([]OrderResponse, len(orders))
 	for i, o := range orders {
@@ -504,7 +503,7 @@ func (s *Service) UpdateStatus(ctx context.Context, orderID string, req UpdateSt
 	// Notify customer of status change (non-fatal, run in background)
 	if s.notifier != nil {
 		name, phone, email, _ := s.customers.GetCustomerInfo(ctx, order.CustomerID)
-		storeName, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
+		storeName, _, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
 		details := StatusDetails[req.Status]
 		go func() {
 			switch req.Status {
@@ -569,7 +568,7 @@ func (s *Service) ConfirmPayment(ctx context.Context, providerRef string) error 
 	// Notify customer
 	if s.notifier != nil {
 		name, phone, email, _ := s.customers.GetCustomerInfo(ctx, order.CustomerID)
-		storeName, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
+		storeName, _, _, _ := s.stores.GetStoreInfo(ctx, order.FulfillingStoreID)
 		go s.notifier.OrderConfirmed(phone, email, name, order.Reference, storeName, order.GrandTotal)
 	}
 

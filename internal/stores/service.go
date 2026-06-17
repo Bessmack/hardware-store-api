@@ -74,11 +74,17 @@ func (s *Service) ListAll(ctx context.Context) ([]StoreStaffResponse, error) {
 // ── SuperAdmin ────────────────────────────────────────────────────────────────
 
 // Create registers a new store branch. SuperAdmin only.
+// Currency is validated against the supported list before persisting.
 func (s *Service) Create(ctx context.Context, req CreateStoreRequest, createdBy *users.User) (*StoreStaffResponse, error) {
 	if createdBy.Role != users.RoleSuperAdmin {
 		return nil, errors.New("only superadmin can create stores")
 	}
 
+	if req.Currency != "" {
+		if err := ValidateCurrency(req.Currency); err != nil {
+			return nil, err
+		}
+	}
 	store, err := s.repo.Create(ctx, req)
 	if err != nil {
 		return nil, err
@@ -89,11 +95,17 @@ func (s *Service) Create(ctx context.Context, req CreateStoreRequest, createdBy 
 }
 
 // Update updates a store's basic information. SuperAdmin only.
+// Currency change is validated — you cannot set an unsupported currency.
 func (s *Service) Update(ctx context.Context, id string, req UpdateStoreRequest, requestedBy *users.User) (*StoreStaffResponse, error) {
 	if requestedBy.Role != users.RoleSuperAdmin {
 		return nil, errors.New("only superadmin can update store information")
 	}
 
+	if req.Currency != "" {
+		if err := ValidateCurrency(req.Currency); err != nil {
+			return nil, err
+		}
+	}
 	store, err := s.repo.Update(ctx, id, req)
 	if err != nil {
 		return nil, err

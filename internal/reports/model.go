@@ -7,22 +7,22 @@ import "time"
 // StoreReport is the full dashboard report for a single store.
 // Available to admin and superadmin of that store.
 type StoreReport struct {
-	StoreID   string    `json:"store_id"`
-	StoreName string    `json:"store_name"`
-	Currency  string    `json:"currency"`
-	Period    Period    `json:"period"`
+	StoreID   string `json:"store_id"`
+	StoreName string `json:"store_name"`
+	Currency  string `json:"currency"`
+	Period    Period `json:"period"`
 
 	// Revenue
-	TotalRevenue    float64 `json:"total_revenue"`
+	TotalRevenue      float64 `json:"total_revenue"`
 	AverageOrderValue float64 `json:"average_order_value"`
 
 	// Orders
-	TotalOrders     int `json:"total_orders"`
-	OrdersByStatus  map[string]int `json:"orders_by_status"`
+	TotalOrders    int            `json:"total_orders"`
+	OrdersByStatus map[string]int `json:"orders_by_status"`
 
 	// Delivery
-	DeliveryOrders  int     `json:"delivery_orders"`
-	PickupOrders    int     `json:"pickup_orders"`
+	DeliveryOrders     int     `json:"delivery_orders"`
+	PickupOrders       int     `json:"pickup_orders"`
 	AverageDeliveryFee float64 `json:"average_delivery_fee"`
 
 	// Payments
@@ -37,9 +37,9 @@ type StoreReport struct {
 	TopProducts []ProductSalesSummary `json:"top_products"`
 
 	// POD & disputes
-	TotalDeliveries  int `json:"total_deliveries"`
-	TotalDisputes    int `json:"total_disputes"`
-	OpenDisputes     int `json:"open_disputes"`
+	TotalDeliveries int `json:"total_deliveries"`
+	TotalDisputes   int `json:"total_disputes"`
+	OpenDisputes    int `json:"open_disputes"`
 
 	GeneratedAt time.Time `json:"generated_at"`
 }
@@ -49,15 +49,16 @@ type StoreReport struct {
 // GlobalReport aggregates key metrics across all stores.
 // Superadmin only.
 type GlobalReport struct {
-	Period  Period `json:"period"`
+	Period Period `json:"period"`
 
 	// Platform-wide totals
-	TotalStores    int     `json:"total_stores"`
-	ActiveStores   int     `json:"active_stores"`
-	TotalOrders    int     `json:"total_orders"`
-	TotalRevenue   float64 `json:"total_revenue"` // note: mixed currencies, use with caution
-	TotalCustomers int     `json:"total_customers"`
-	NewCustomers   int     `json:"new_customers"` // registered within the period
+	TotalStores  int `json:"total_stores"`
+	ActiveStores int `json:"active_stores"`
+	TotalOrders  int `json:"total_orders"`
+	// Revenue is reported per currency to avoid mixing incompatible totals.
+	RevenueByCurrency map[string]float64 `json:"revenue_by_currency"`
+	TotalCustomers    int                `json:"total_customers"`
+	NewCustomers      int                `json:"new_customers"` // registered within the period
 
 	// Per-store breakdown
 	StoreBreakdowns []StoreBreakdown `json:"store_breakdown"`

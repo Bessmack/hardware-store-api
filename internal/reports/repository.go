@@ -222,17 +222,37 @@ func (r *Repository) GetGlobalReport(ctx context.Context, f ReportFilter) (*Glob
 		return nil, fmt.Errorf("reports: platform totals query failed: %w", err)
 	}
 
-	// ── Order + revenue totals across all stores ──────────────────────────────
+	// ── Order totals across all stores ───────────────────────────────────────
 	if err := r.db.Pool.QueryRow(ctx, `
-		SELECT
-			COUNT(*),
-			COALESCE(SUM(grand_total), 0)
+		SELECT COUNT(*) FROM orders
+		WHERE payment_status = 'paid'
+		  AND created_at BETWEEN $1 AND $2
+	`, f.From, f.To).Scan(&report.TotalOrders); err != nil {
+		return nil, fmt.Errorf("reports: global order totals failed: %w", err)
+	}
+
+	// ── Revenue by currency to avoid mixing different currencies ─────────────
+	report.RevenueByCurrency = make(map[string]float64)
+	currencyRows, err := r.db.Pool.Query(ctx, `
+		SELECT COALESCE(currency, 'KES') AS currency, COALESCE(SUM(grand_total), 0) AS revenue
 		FROM orders
 		WHERE payment_status = 'paid'
 		  AND created_at BETWEEN $1 AND $2
-	`, f.From, f.To).Scan(&report.TotalOrders, &report.TotalRevenue); err != nil {
-		return nil, fmt.Errorf("reports: global order totals failed: %w", err)
+		GROUP BY COALESCE(currency, 'KES')
+	`, f.From, f.To)
+	if err != nil {
+		return nil, fmt.Errorf("reports: revenue by currency query failed: %w", err)
 	}
+	defer currencyRows.Close()
+	for currencyRows.Next() {
+		var cur string
+		var rev float64
+		if err := currencyRows.Scan(&cur, &rev); err != nil {
+			return nil, err
+		}
+		report.RevenueByCurrency[cur] = rev
+	}
+	currencyRows.Close()
 
 	// ── Payment method split ──────────────────────────────────────────────────
 	rows, err := r.db.Pool.Query(ctx, `

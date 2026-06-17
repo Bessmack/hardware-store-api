@@ -77,12 +77,14 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*Store, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
 	if err := r.decryptStore(s); err != nil {
 		return nil, err
 	}
-	return s, err
+	return s, nil
 }
-
 // Update updates editable store fields. Uses COALESCE so empty strings leave
 // existing values untouched — partial updates are safe.
 func (r *Repository) Update(ctx context.Context, id string, req UpdateStoreRequest) (*Store, error) {
@@ -119,14 +121,15 @@ func (r *Repository) Update(ctx context.Context, id string, req UpdateStoreReque
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
 	if err := r.decryptStore(s); err != nil {
 		return nil, err
 	}
-	return s, err
+	return s, nil
 }
 
-// UpdateCredentials sets or replaces a store's payment credentials.
-// Only fields with non-empty values are updated — send empty string to leave unchanged.
 func (r *Repository) UpdateCredentials(ctx context.Context, id string, req UpdateCredentialsRequest) (*Store, error) {
 	// Encrypt sensitive fields before writing them to the database
 	var (
@@ -194,18 +197,19 @@ func (r *Repository) UpdateCredentials(ctx context.Context, id string, req Updat
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
 	if err := r.decryptStore(s); err != nil {
 		return nil, err
 	}
-	return s, err
+	return s, nil
 }
 
 // SetActive activates or deactivates a store.
 func (r *Repository) SetActive(ctx context.Context, id string, active bool) error {
 	result, err := r.db.Pool.Exec(ctx,
-		`UPDATE stores SET is_active = $1 WHERE id = $2`,
-		active, id,
-	)
+		`UPDATE stores SET is_active = $1 WHERE id = $2`, active, id)
 	if err != nil {
 		return err
 	}
@@ -217,19 +221,21 @@ func (r *Repository) SetActive(ctx context.Context, id string, active bool) erro
 
 // ListActive returns all active stores — used by customers and geo routing.
 func (r *Repository) ListActive(ctx context.Context) ([]*Store, error) {
-	return r.list(ctx, true, false)
+	return r.list(ctx, `WHERE is_active = TRUE`)
 }
 
 func (r *Repository) ListInactive(ctx context.Context) ([]*Store, error) {
-	return r.list(ctx, false, true)
+	return r.list(ctx, `WHERE is_active = FALSE`)
 }
 
 // ListAll returns every store including inactive — superadmin only.
 func (r *Repository) ListAll(ctx context.Context) ([]*Store, error) {
-	return r.list(ctx, false, true)
+	return r.list(ctx, ``)
 }
 
-func (r *Repository) list(ctx context.Context, activeOnly, includeInactive bool) ([]*Store, error) {
+// list is the shared query for all list variants.
+// The filter string is appended as a WHERE clause (or empty for all stores).
+func (r *Repository) list(ctx context.Context, filter string) ([]*Store, error) {
 	query := `
 		SELECT
 			id, name,
@@ -243,16 +249,7 @@ func (r *Repository) list(ctx context.Context, activeOnly, includeInactive bool)
 			COALESCE(currency, 'KES'),
 			is_active, created_at, updated_at
 		FROM stores
-	`
-	if activeOnly {
-		query += " WHERE is_active = TRUE"
-	}
-	query += " ORDER BY county, name"
-
-	if !activeOnly && includeInactive {
-		query += " WHERE is_active = FALSE"
-	}
-	query += " ORDER BY county, name"
+	` + filter + ` ORDER BY county, name`
 
 	rows, err := r.db.Pool.Query(ctx, query)
 	if err != nil {
@@ -389,27 +386,32 @@ func (r *Repository) decryptStore(s *Store) error {
 func (r *Repository) GetStoreCoordinates(ctx context.Context, storeID string) (name string, lat, lng float64, currency string, err error) {
 	row := r.db.Pool.QueryRow(ctx,
 		`SELECT name, latitude, longitude, COALESCE(currency, 'KES')
-		 FROM stores WHERE id = $1 AND is_active = TRUE`,
-		storeID,
-	)
+		 FROM stores WHERE id = $1 AND is_active = TRUE`, storeID)
 	if scanErr := row.Scan(&name, &lat, &lng, &currency); scanErr != nil {
 		return "", 0, 0, "", fmt.Errorf("stores: store not found: %w", scanErr)
 	}
 	return name, lat, lng, currency, nil
 }
 
-// GetPaymentCredentials returns decrypted payment credentials used by providers.
+// GetPaymentCredentials satisfies the payments.StoreCredentialsReader interface.
+// Returns the store's payment credentials for processing transactions.
 func (r *Repository) GetPaymentCredentials(ctx context.Context, storeID string) (*payments.StoreCredentials, error) {
 	row := r.db.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(mpesa_shortcode, ''), COALESCE(mpesa_passkey, ''),
 			COALESCE(mpesa_account_ref, ''), COALESCE(airtel_merchant_id, ''),
-			COALESCE(currency, 'KES'), COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, '')
+			COALESCE(currency, 'KES'),
+			COALESCE(mpesa_consumer_key, ''), COALESCE(mpesa_consumer_secret, '')
 		FROM stores WHERE id = $1
 	`, storeID)
 
 	var creds payments.StoreCredentials
-	if err := row.Scan(&creds.MpesaShortcode, &creds.MpesaPasskey, &creds.MpesaAccountRef, &creds.AirtelMerchantID, &creds.Currency, &creds.MpesaConsumerKey, &creds.MpesaConsumerSecret); err != nil {
+	if err := row.Scan(
+		&creds.MpesaShortcode, &creds.MpesaPasskey,
+		&creds.MpesaAccountRef, &creds.AirtelMerchantID,
+		&creds.Currency,
+		&creds.MpesaConsumerKey, &creds.MpesaConsumerSecret,
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -448,16 +450,14 @@ func (r *Repository) GetPaymentCredentials(ctx context.Context, storeID string) 
 	return &creds, nil
 }
 
-// ── orders.StoreInfoReader implementation ────────────────────────────────────
-
-// GetStoreInfo returns the store name and county for order reference generation.
-func (r *Repository) GetStoreInfo(ctx context.Context, storeID string) (name, county string, err error) {
+// GetStoreInfo satisfies orders.StoreInfoReader.
+func (r *Repository) GetStoreInfo(ctx context.Context, storeID string) (name, county, currency string, err error) {
 	row := r.db.Pool.QueryRow(ctx,
-		`SELECT name, COALESCE(county, '') FROM stores WHERE id = $1`,
+		`SELECT name, COALESCE(county, ''), COALESCE(currency, 'KES') FROM stores WHERE id = $1`,
 		storeID,
 	)
-	if scanErr := row.Scan(&name, &county); scanErr != nil {
-		return "", "", fmt.Errorf("stores: not found: %w", scanErr)
+	if scanErr := row.Scan(&name, &county, &currency); scanErr != nil {
+		return "", "", "", fmt.Errorf("stores: not found: %w", scanErr)
 	}
-	return name, county, nil
+	return name, county, currency, nil
 }
