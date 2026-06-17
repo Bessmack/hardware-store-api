@@ -225,6 +225,25 @@ func (h *Handler) AssignAdminToStore(w http.ResponseWriter, r *http.Request) {
 	response.NoContent(w)
 }
 
+// GetByID returns a single user's profile by ID. SuperAdmin only — gated in routes.go.
+// Reuses GetProfile since loading a user by ID and returning the safe UserResponse
+// is identical logic whether it's your own profile or another user's.
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	targetID := chi.URLParam(r, "id")
+
+	profile, err := h.service.GetProfile(r.Context(), targetID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			response.NotFound(w, "user not found")
+			return
+		}
+		response.InternalServerError(w)
+		return
+	}
+
+	response.Success(w, profile)
+}
+
 // DeactivateUser deactivates any user by ID. SuperAdmin only.
 func (h *Handler) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 	requestedBy := UserFromContext(r.Context())
