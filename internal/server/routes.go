@@ -27,24 +27,24 @@ import (
 func NewRouter(
 	cfg *config.Config,
 	// Middleware
-	authMw       *middleware.AuthMiddleware,
+	authMw *middleware.AuthMiddleware,
 	storeScopeMw *middleware.StoreScopeMiddleware,
-	rateLimiter  *middleware.RateLimiter,
-	corsMw       func(http.Handler) http.Handler,
+	rateLimiter *middleware.RateLimiter,
+	corsMw func(http.Handler) http.Handler,
 	// Handlers
-	authHandler      *auth.Handler,
-	userHandler      *users.Handler,
-	storeHandler     *stores.Handler,
-	geoHandler       *geo.Handler,
-	productHandler   *products.Handler,
+	authHandler *auth.Handler,
+	userHandler *users.Handler,
+	storeHandler *stores.Handler,
+	geoHandler *geo.Handler,
+	productHandler *products.Handler,
 	inventoryHandler *inventory.Handler,
-	cartHandler      *cart.Handler,
-	wishlistHandler  *wishlist.Handler,
-	deliveryHandler  *delivery.Handler,
-	orderHandler     *orders.Handler,
-	podHandler       *pod.Handler,
-	paymentHandler   *payments.Handler,
-	reportsHandler   *reports.Handler,
+	cartHandler *cart.Handler,
+	wishlistHandler *wishlist.Handler,
+	deliveryHandler *delivery.Handler,
+	orderHandler *orders.Handler,
+	podHandler *pod.Handler,
+	paymentHandler *payments.Handler,
+	reportsHandler *reports.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -182,24 +182,13 @@ func NewRouter(
 				// Delivery rates
 				r.Get("/delivery/rates", deliveryHandler.ListRates)
 				r.Put("/delivery/rates", deliveryHandler.UpsertStoreRate)
+				r.Delete("/delivery/rates/{vehicleType}", deliveryHandler.DeleteStoreRate)
 
 				// Store report
 				r.Get("/report", reportsHandler.StoreReport)
-			})
-		})
 
-		// ── Admin routes (admin and above) ────────────────────────────────────
-		r.Group(func(r chi.Router) {
-			r.Use(authMw.RequireAuth)
-			r.Use(authMw.RequireRole("admin", "superadmin"))
-			r.Use(storeScopeMw.StoreScope)
-
-			r.Route("/store", func(r chi.Router) {
 				// Disputes resolved by admin
 				r.Put("/disputes/{disputeID}/resolve", podHandler.ResolveDispute)
-
-				// Delivery global rates (admin can set store-specific overrides)
-				r.Delete("/delivery/rates/{vehicleType}", deliveryHandler.DeleteStoreRate)
 			})
 		})
 
@@ -224,7 +213,7 @@ func NewRouter(
 
 			// User management
 			r.Get("/users", userHandler.ListAdmins)
-			r.Get("/users/{userID}", userHandler.DeactivateUser)  // TODO: This should be a Get endpoint to retrieve user details
+			r.Get("/users/{userID}", userHandler.DeactivateUser) // TODO: This should be a Get endpoint to retrieve user details
 		})
 	})
 
