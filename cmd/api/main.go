@@ -25,6 +25,8 @@ import (
 	cardprovider "github.com/Bessmack/hardware-store-api/internal/payments/card"
 	"github.com/Bessmack/hardware-store-api/internal/payments/mpesa"
 	"github.com/Bessmack/hardware-store-api/internal/pod"
+	"github.com/Bessmack/hardware-store-api/internal/reports"
+	"github.com/Bessmack/hardware-store-api/internal/server"
 	"github.com/Bessmack/hardware-store-api/internal/products"
 	cloudstorage "github.com/Bessmack/hardware-store-api/internal/storage/cloudinary"
 	"github.com/Bessmack/hardware-store-api/internal/stores"
@@ -131,6 +133,7 @@ func main() {
 	deliveryRepo  := delivery.NewRepository(db)
 	orderRepo     := orders.NewRepository(db)
 	podRepo       := pod.NewRepository(db)
+	reportsRepo    := reports.NewRepository(db)
 
 	// ── 8. Payments ───────────────────────────────────────────────────────────
 	paymentRegistry := payments.NewRegistry()
@@ -239,6 +242,8 @@ func main() {
 	)
 	orderService.SetPODDispatcher(podService)
 
+	reportsService := reports.NewService(reportsRepo)
+
 	authService := auth.NewService(userService, cacheClient, auth.ServiceConfig{
 		JWTSecret:           cfg.JWT.Secret,
 		AccessExpiryMinutes: cfg.JWT.AccessExpiryMinutes,
@@ -272,42 +277,22 @@ func main() {
 	orderHandler     := orders.NewHandler(orderService)
 	podHandler       := pod.NewHandler(podService)
 	paymentHandler   := payments.NewHandler(paymentRegistry, orderService)
-
-	// Suppress unused variable warnings
-
-	// Suppress unused variable warnings until server/routes.go is wired in.
-	// Remove each _ = ... line as you register the corresponding handler in routes.go.
-	_ = authMw
-	_ = storeScopeMw
-	_ = rateLimiter
-	_ = corsMw
-	_ = authHandler
-	_ = userHandler
-	_ = storeHandler
-	_ = geoHandler
-	_ = productHandler
-	_ = inventoryHandler
-	_ = cartHandler
-	_ = wishlistHandler
-	_ = deliveryHandler
-	_ = orderHandler
-	_ = podHandler
-	_ = paymentHandler
+	reportsHandler  := reports.NewHandler(reportsService)
 
 	// ── 13. Router ────────────────────────────────────────────────────────────
-	// TODO: uncomment once server/routes.go is built
-	// router := server.NewRouter(
-	//     cfg, authMw, storeScopeMw, rateLimiter, corsMw,
-	//     authHandler, userHandler, storeHandler, geoHandler,
-	//     productHandler, inventoryHandler, cartHandler,
-	//     wishlistHandler, deliveryHandler, orderHandler,
-	//     podHandler, paymentHandler,
-	// )
+	router := server.NewRouter(
+		cfg,
+		authMw, storeScopeMw, rateLimiter, corsMw,
+		authHandler, userHandler, storeHandler, geoHandler,
+		productHandler, inventoryHandler, cartHandler,
+		wishlistHandler, deliveryHandler, orderHandler,
+		podHandler, paymentHandler, reportsHandler,
+	)
 
 	// ── 14. HTTP Server ───────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%s", cfg.App.Port),
-		// Handler: router,
+		Handler: router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -333,6 +318,6 @@ func main() {
 	if err := srv.Shutdown(timeoutCtx); err != nil {
 		l.Fatal().Err(err).Msg("forced shutdown")
 	}
-
+	
 	l.Info().Msg("server stopped cleanly")
 }
