@@ -6,7 +6,7 @@
 -- A cart belongs to EITHER a customer OR a guest session — never both.
 -- The CHECK constraint below enforces this at the database level.
 
-CREATE TABLE carts (
+CREATE TABLE IF NOT EXISTS carts (
     id               UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_id      UUID         REFERENCES users(id) ON DELETE CASCADE,
     guest_session_id VARCHAR(100) UNIQUE,
@@ -25,7 +25,7 @@ CREATE TABLE carts (
 -- and updates the locked price — but only when the customer views the cart again.
 -- The payment is always initiated for the validated price, never a stale one.
 
-CREATE TABLE cart_items (
+CREATE TABLE IF NOT EXISTS cart_items (
     id             UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
     cart_id        UUID          NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
     product_id     UUID          NOT NULL REFERENCES products(id),
@@ -41,11 +41,13 @@ CREATE TABLE cart_items (
     CONSTRAINT unique_cart_product UNIQUE (cart_id, product_id)
 );
 
-CREATE INDEX idx_carts_customer   ON carts (customer_id);
-CREATE INDEX idx_carts_session    ON carts (guest_session_id);
-CREATE INDEX idx_cart_items_cart  ON cart_items (cart_id);
-CREATE INDEX idx_cart_items_store ON cart_items (store_id);
+CREATE INDEX IF NOT EXISTS idx_carts_customer   ON carts (customer_id);
+CREATE INDEX IF NOT EXISTS idx_carts_session    ON carts (guest_session_id);
+CREATE INDEX IF NOT EXISTS idx_cart_items_cart  ON cart_items (cart_id);
+CREATE INDEX IF NOT EXISTS idx_cart_items_store ON cart_items (store_id);
 
+-- Drop trigger if it exists (idempotent)
+DROP TRIGGER IF EXISTS set_updated_at ON carts;
 CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON carts
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();

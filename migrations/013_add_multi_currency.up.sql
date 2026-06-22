@@ -13,9 +13,14 @@
 -- Default is KES (Kenyan Shilling) since that is the primary market.
 -- Validated by a CHECK constraint — only uppercase 3-letter codes accepted.
 
-ALTER TABLE stores
-    ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'KES'
-        CHECK (currency ~ '^[A-Z]{3}$');
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='stores' AND column_name='currency') THEN
+        ALTER TABLE stores ADD COLUMN currency VARCHAR(3) NOT NULL DEFAULT 'KES'
+            CHECK (currency ~ '^[A-Z]{3}$');
+    END IF;
+END $$;
 
 COMMENT ON COLUMN stores.currency IS
     'ISO 4217 currency code. All prices at this store are in this currency.';
@@ -24,27 +29,47 @@ COMMENT ON COLUMN stores.currency IS
 -- The _kes suffix will be misleading for overseas stores.
 -- Rename now while the schema is still fresh.
 
--- store_inventory
-ALTER TABLE store_inventory
-    RENAME COLUMN price_kes TO price;
-
--- inventory_price_history
-ALTER TABLE inventory_price_history
-    RENAME COLUMN old_price_kes TO old_price;
-ALTER TABLE inventory_price_history
-    RENAME COLUMN new_price_kes TO new_price;
-
--- cart_items (no data yet — safe to rename)
-ALTER TABLE cart_items
-    RENAME COLUMN unit_price_kes TO unit_price;
-
--- orders
-ALTER TABLE orders
-    RENAME COLUMN items_total_kes  TO items_total;
-ALTER TABLE orders
-    RENAME COLUMN delivery_fee_kes TO delivery_fee;
-ALTER TABLE orders
-    RENAME COLUMN grand_total_kes  TO grand_total;
+DO $$ 
+BEGIN
+    -- store_inventory
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='store_inventory' AND column_name='price_kes') THEN
+        ALTER TABLE store_inventory RENAME COLUMN price_kes TO price;
+    END IF;
+    
+    -- inventory_price_history
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='inventory_price_history' AND column_name='old_price_kes') THEN
+        ALTER TABLE inventory_price_history RENAME COLUMN old_price_kes TO old_price;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='inventory_price_history' AND column_name='new_price_kes') THEN
+        ALTER TABLE inventory_price_history RENAME COLUMN new_price_kes TO new_price;
+    END IF;
+    
+    -- cart_items
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='cart_items' AND column_name='unit_price_kes') THEN
+        ALTER TABLE cart_items RENAME COLUMN unit_price_kes TO unit_price;
+    END IF;
+    
+    -- orders
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='orders' AND column_name='items_total_kes') THEN
+        ALTER TABLE orders RENAME COLUMN items_total_kes TO items_total;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='orders' AND column_name='delivery_fee_kes') THEN
+        ALTER TABLE orders RENAME COLUMN delivery_fee_kes TO delivery_fee;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='orders' AND column_name='grand_total_kes') THEN
+        ALTER TABLE orders RENAME COLUMN grand_total_kes TO grand_total;
+    END IF;
+END $$;
 
 -- ── 3. Per-store delivery rates ───────────────────────────────────────────────
 -- Vehicle types (from migration 011): bike | pickup | mini-truck | truck | prime-mover
@@ -60,25 +85,46 @@ ALTER TABLE orders
 --   ORDER BY store_id NULLS LAST   -- store-specific beats global
 --   LIMIT 1
 
--- Drop the old single-column primary key and rename amount columns
-ALTER TABLE delivery_rates DROP CONSTRAINT delivery_rates_pkey;
+DO $$ 
+BEGIN
+    -- Check if store_id column exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='delivery_rates' AND column_name='store_id') THEN
+        ALTER TABLE delivery_rates ADD COLUMN store_id UUID REFERENCES stores(id) ON DELETE CASCADE;
+    END IF;
+    
+    -- Check if base_fee column exists (rename from base_fee_kes)
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='delivery_rates' AND column_name='base_fee_kes') THEN
+        ALTER TABLE delivery_rates RENAME COLUMN base_fee_kes TO base_fee;
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name='delivery_rates' AND column_name='per_km_kes') THEN
+        ALTER TABLE delivery_rates RENAME COLUMN per_km_kes TO per_km;
+    END IF;
+END $$;
 
-ALTER TABLE delivery_rates
-    RENAME COLUMN base_fee_kes TO base_fee;
-ALTER TABLE delivery_rates
-    RENAME COLUMN per_km_kes   TO per_km;
+-- Drop the old primary key if it exists
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'delivery_rates_pkey') THEN
+        ALTER TABLE delivery_rates DROP CONSTRAINT delivery_rates_pkey;
+    END IF;
+END $$;
 
-ALTER TABLE delivery_rates
-    ADD COLUMN store_id UUID REFERENCES stores(id) ON DELETE CASCADE;
-
--- New composite primary key: (store_id, vehicle_type)
--- NULL store_id uses a partial unique index instead
-ALTER TABLE delivery_rates
-    ADD CONSTRAINT delivery_rates_store_vehicle_key
-        UNIQUE (store_id, vehicle_type);
+-- Add new composite unique constraint if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'delivery_rates_store_vehicle_key') THEN
+        ALTER TABLE delivery_rates
+            ADD CONSTRAINT delivery_rates_store_vehicle_key
+            UNIQUE (store_id, vehicle_type);
+    END IF;
+END $$;
 
 -- Ensure only one global default per vehicle type (store_id IS NULL rows)
-CREATE UNIQUE INDEX delivery_rates_global_default
+CREATE UNIQUE INDEX IF NOT EXISTS delivery_rates_global_default
     ON delivery_rates (vehicle_type)
     WHERE store_id IS NULL;
 

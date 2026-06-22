@@ -1,6 +1,6 @@
 module github.com/Bessmack/hardware-store-api
 
-go 1.26.1
+go 1.26
 
 require (
 	github.com/cloudinary/cloudinary-go/v2 v2.16.0

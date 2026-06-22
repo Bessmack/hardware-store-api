@@ -60,3 +60,10 @@ node_modules/
 /pkg/mod/
 .VSCodeCounter
 test_endpoints.sh
+
+# Backups
+/backups/
+*.sql
+
+# Makefile backup
+*.bak

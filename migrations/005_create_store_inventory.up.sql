@@ -7,7 +7,7 @@
 -- Staff (cashiers, admins, superadmin) see stock_quantity and low_stock_alert.
 -- This is enforced in the application response layer, not here.
 
-CREATE TABLE store_inventory (
+CREATE TABLE IF NOT EXISTS store_inventory (
     id              UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     store_id        UUID         NOT NULL REFERENCES stores(id)   ON DELETE CASCADE,
     product_id      UUID         NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -29,10 +29,12 @@ CREATE TABLE store_inventory (
     CONSTRAINT unique_store_product UNIQUE (store_id, product_id)
 );
 
-CREATE INDEX idx_inventory_store     ON store_inventory (store_id);
-CREATE INDEX idx_inventory_product   ON store_inventory (product_id);
-CREATE INDEX idx_inventory_available ON store_inventory (store_id, is_available);
+CREATE INDEX IF NOT EXISTS idx_inventory_store     ON store_inventory (store_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_product   ON store_inventory (product_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_available ON store_inventory (store_id, is_available);
 
+-- Drop trigger if it exists (idempotent)
+DROP TRIGGER IF EXISTS set_updated_at ON store_inventory;
 CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON store_inventory
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();

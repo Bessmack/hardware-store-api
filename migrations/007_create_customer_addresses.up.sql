@@ -5,7 +5,7 @@
 -- lat/lng are captured once (via GPS, Maps autocomplete, or manual geocoding)
 -- and stored permanently so delivery fee calculation never needs to re-geocode.
 
-CREATE TABLE customer_addresses (
+CREATE TABLE IF NOT EXISTS customer_addresses (
     id           UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_id  UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
@@ -22,8 +22,8 @@ CREATE TABLE customer_addresses (
 );
 
 -- A customer can only have one default address at a time
-CREATE UNIQUE INDEX one_default_address
+CREATE UNIQUE INDEX IF NOT EXISTS one_default_address
     ON customer_addresses (customer_id)
     WHERE is_default = TRUE;
 
-CREATE INDEX idx_addresses_customer ON customer_addresses (customer_id);
+CREATE INDEX IF NOT EXISTS idx_addresses_customer ON customer_addresses (customer_id);

@@ -9,7 +9,7 @@
 -- Photos live in delivery-photos/ (auto-deleted after 30 days) until a
 -- dispute is raised, at which point they are moved to dispute-evidence/.
 
-CREATE TABLE proof_of_delivery (
+CREATE TABLE IF NOT EXISTS proof_of_delivery (
     id                       UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
 
     -- One POD record per order
@@ -48,7 +48,7 @@ CREATE TABLE proof_of_delivery (
 -- Support staff review the dispute alongside the full POD record
 -- (OTP timestamp, photo, GPS coordinates) in one place.
 
-CREATE TABLE disputes (
+CREATE TABLE IF NOT EXISTS disputes (
     id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_id    UUID        NOT NULL REFERENCES orders(id),
     customer_id UUID        NOT NULL REFERENCES users(id),
@@ -63,8 +63,8 @@ CREATE TABLE disputes (
     CONSTRAINT unique_order_dispute UNIQUE (order_id)
 );
 
-CREATE INDEX idx_pod_order          ON proof_of_delivery (order_id);
-CREATE INDEX idx_pod_status         ON proof_of_delivery (status);
-CREATE INDEX idx_disputes_order     ON disputes (order_id);
-CREATE INDEX idx_disputes_customer  ON disputes (customer_id);
-CREATE INDEX idx_disputes_status    ON disputes (status);
+CREATE INDEX IF NOT EXISTS idx_pod_order          ON proof_of_delivery (order_id);
+CREATE INDEX IF NOT EXISTS idx_pod_status         ON proof_of_delivery (status);
+CREATE INDEX IF NOT EXISTS idx_disputes_order     ON disputes (order_id);
+CREATE INDEX IF NOT EXISTS idx_disputes_customer  ON disputes (customer_id);
+CREATE INDEX IF NOT EXISTS idx_disputes_status    ON disputes (status);

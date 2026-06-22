@@ -4,7 +4,7 @@
 -- The global Daraja consumer key/secret (for generating access tokens)
 -- lives in the .env file, not here.
 
-CREATE TABLE stores (
+CREATE TABLE IF NOT EXISTS stores (
     id                  UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     name                VARCHAR(100) NOT NULL,
     address             TEXT,
@@ -15,10 +15,6 @@ CREATE TABLE stores (
     email               VARCHAR(255),
 
     -- ── M-Pesa credentials (per store) ───────────────────────────────────────
-    -- mpesa_paybill:    the business number customers pay to (e.g. 522522)
-    -- mpesa_account_ref: prefix for the account reference shown on STK push
-    -- mpesa_shortcode:  Lipa Na M-Pesa shortcode for STK push
-    -- mpesa_passkey:    Daraja passkey — treat like a password, keep secret
     mpesa_paybill       VARCHAR(20),
     mpesa_account_ref   VARCHAR(50),
     mpesa_shortcode     VARCHAR(20),
@@ -32,13 +28,23 @@ CREATE TABLE stores (
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- Two stores cannot share the same paybill number
-ALTER TABLE stores
-    ADD CONSTRAINT unique_mpesa_paybill UNIQUE (mpesa_paybill);
+-- Only add constraint if it doesn't already exist
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'unique_mpesa_paybill' 
+        AND conrelid = 'stores'::regclass
+    ) THEN
+        ALTER TABLE stores ADD CONSTRAINT unique_mpesa_paybill UNIQUE (mpesa_paybill);
+    END IF;
+END $$;
 
-CREATE INDEX idx_stores_county  ON stores (county);
-CREATE INDEX idx_stores_active  ON stores (is_active);
+CREATE INDEX IF NOT EXISTS idx_stores_county  ON stores (county);
+CREATE INDEX IF NOT EXISTS idx_stores_active  ON stores (is_active);
 
+-- Drop trigger if it exists (idempotent)
+DROP TRIGGER IF EXISTS set_updated_at ON stores;
 CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON stores
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();

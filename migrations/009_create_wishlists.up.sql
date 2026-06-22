@@ -6,7 +6,7 @@
 -- Price is NOT stored here. When the customer views their wishlist,
 -- current prices are fetched live from their nearest store's inventory.
 
-CREATE TABLE wishlists (
+CREATE TABLE IF NOT EXISTS wishlists (
     id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_id UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name        VARCHAR(100) NOT NULL DEFAULT 'My Wishlist',
@@ -18,7 +18,7 @@ CREATE TABLE wishlists (
 
 -- ── Wishlist Items ────────────────────────────────────────────────────────────
 
-CREATE TABLE wishlist_items (
+CREATE TABLE IF NOT EXISTS wishlist_items (
     id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     wishlist_id UUID        NOT NULL REFERENCES wishlists(id)  ON DELETE CASCADE,
     product_id  UUID        NOT NULL REFERENCES products(id)   ON DELETE CASCADE,
@@ -33,6 +33,6 @@ CREATE TABLE wishlist_items (
     CONSTRAINT unique_wishlist_product UNIQUE (wishlist_id, product_id)
 );
 
-CREATE INDEX idx_wishlists_customer       ON wishlists (customer_id);
-CREATE INDEX idx_wishlist_items_wishlist  ON wishlist_items (wishlist_id);
-CREATE INDEX idx_wishlist_items_product   ON wishlist_items (product_id);
+CREATE INDEX IF NOT EXISTS idx_wishlists_customer       ON wishlists (customer_id);
+CREATE INDEX IF NOT EXISTS idx_wishlist_items_wishlist  ON wishlist_items (wishlist_id);
+CREATE INDEX IF NOT EXISTS idx_wishlist_items_product   ON wishlist_items (product_id);

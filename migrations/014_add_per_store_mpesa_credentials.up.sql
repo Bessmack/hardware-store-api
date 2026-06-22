@@ -18,9 +18,22 @@
 --     mpesa:token:global          → shared platform token
 --     mpesa:token:{storeID}       → store-specific token
 
-ALTER TABLE stores
-    ADD COLUMN mpesa_consumer_key    TEXT,  -- NULL = use global from .env
-    ADD COLUMN mpesa_consumer_secret TEXT;  -- NULL = use global from .env
+-- Add columns if they don't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='stores' AND column_name='mpesa_consumer_key') THEN
+        ALTER TABLE stores ADD COLUMN mpesa_consumer_key TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='stores' AND column_name='mpesa_consumer_secret') THEN
+        ALTER TABLE stores ADD COLUMN mpesa_consumer_secret TEXT;
+    END IF;
+END $$;
+
+-- Note: The unique_mpesa_paybill constraint was already created in migration 002
+-- No need to create it again here!
 
 COMMENT ON COLUMN stores.mpesa_consumer_key IS
     'Optional. Set only when this store has its own Safaricom Daraja developer account. '

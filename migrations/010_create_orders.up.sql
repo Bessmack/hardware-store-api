@@ -2,7 +2,7 @@
 -- All monetary values are locked at placement time — they never change
 -- after the order is created, regardless of later price or fee adjustments.
 
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     id                   UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
 
     -- Human-readable reference shown to customers and staff (e.g. KMB-00482)
@@ -21,9 +21,9 @@ CREATE TABLE orders (
     vehicle_reason       TEXT,                       -- shown to customer at checkout
 
     -- ── Pricing (locked at placement) ────────────────────────────────────────
-    items_total_kes      DECIMAL(10,2) NOT NULL,
-    delivery_fee_kes     DECIMAL(10,2) NOT NULL DEFAULT 0,
-    grand_total_kes      DECIMAL(10,2) NOT NULL,     -- items_total + delivery_fee
+    items_total          DECIMAL(10,2) NOT NULL,
+    delivery_fee         DECIMAL(10,2) NOT NULL DEFAULT 0,
+    grand_total          DECIMAL(10,2) NOT NULL,     -- items_total + delivery_fee
 
     -- ── Payment ──────────────────────────────────────────────────────────────
     payment_provider     VARCHAR(20)   CHECK (payment_provider IN ('mpesa', 'airtel', 'card')),
@@ -53,7 +53,7 @@ CREATE TABLE orders (
 -- product_name is stored here because the product name could change later —
 -- the order record must reflect exactly what was purchased.
 
-CREATE TABLE order_items (
+CREATE TABLE IF NOT EXISTS order_items (
     id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_id        UUID          NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     product_id      UUID          NOT NULL REFERENCES products(id),
@@ -61,8 +61,8 @@ CREATE TABLE order_items (
     -- Snapshot values — locked forever
     product_name    VARCHAR(255)  NOT NULL,
     quantity        INT           NOT NULL CHECK (quantity > 0),
-    unit_price_kes  DECIMAL(10,2) NOT NULL,
-    subtotal_kes    DECIMAL(10,2) NOT NULL    -- unit_price * quantity
+    unit_price      DECIMAL(10,2) NOT NULL,
+    subtotal        DECIMAL(10,2) NOT NULL    -- unit_price * quantity
 );
 
 -- ── Order Status History ──────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ CREATE TABLE order_items (
 -- This gives customers a visible timeline and gives staff a full audit trail.
 -- The 'note' column is internal only — never shown to the customer.
 
-CREATE TABLE order_status_history (
+CREATE TABLE IF NOT EXISTS order_status_history (
     id         UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_id   UUID        NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     status     VARCHAR(30) NOT NULL,
@@ -79,14 +79,16 @@ CREATE TABLE order_status_history (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_orders_customer         ON orders (customer_id);
-CREATE INDEX idx_orders_store            ON orders (fulfilling_store_id);
-CREATE INDEX idx_orders_status           ON orders (status);
-CREATE INDEX idx_orders_payment_status   ON orders (payment_status);
-CREATE INDEX idx_orders_reference        ON orders (reference);
-CREATE INDEX idx_order_items_order       ON order_items (order_id);
-CREATE INDEX idx_order_status_history    ON order_status_history (order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_customer         ON orders (customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_store            ON orders (fulfilling_store_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status           ON orders (status);
+CREATE INDEX IF NOT EXISTS idx_orders_payment_status   ON orders (payment_status);
+CREATE INDEX IF NOT EXISTS idx_orders_reference        ON orders (reference);
+CREATE INDEX IF NOT EXISTS idx_order_items_order       ON order_items (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_status_history    ON order_status_history (order_id, created_at DESC);
 
+-- Drop trigger if it exists (idempotent)
+DROP TRIGGER IF EXISTS set_updated_at ON orders;
 CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON orders
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();

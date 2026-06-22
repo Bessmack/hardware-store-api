@@ -7,7 +7,7 @@
 --     (The PRIMARY KEY on user_id alone enforces this — not a composite key.)
 --   - Deleting a user or store cascades to remove the assignment automatically.
 
-CREATE TABLE staff_store_assignments (
+CREATE TABLE IF NOT EXISTS staff_store_assignments (
     user_id     UUID        NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
     store_id    UUID        NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -18,4 +18,4 @@ CREATE TABLE staff_store_assignments (
 );
 
 -- Fast lookup of all staff at a given store
-CREATE INDEX idx_staff_assignments_store ON staff_store_assignments (store_id);
+CREATE INDEX IF NOT EXISTS idx_staff_assignments_store ON staff_store_assignments (store_id);

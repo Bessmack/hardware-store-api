@@ -10,7 +10,7 @@
 -- min_vehicle_type is only set for 'dimension' and 'hazardous' items.
 -- For 'weight' items it is NULL — the vehicle is calculated from the total cart weight.
 
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
     id               UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     name             VARCHAR(255) NOT NULL,
     description      TEXT,
@@ -38,9 +38,11 @@ CREATE TABLE products (
     updated_by       UUID         REFERENCES users(id)
 );
 
-CREATE INDEX idx_products_category ON products (category);
-CREATE INDEX idx_products_active   ON products (is_active);
+CREATE INDEX IF NOT EXISTS idx_products_category ON products (category);
+CREATE INDEX IF NOT EXISTS idx_products_active   ON products (is_active);
 
+-- Drop trigger if it exists (idempotent)
+DROP TRIGGER IF EXISTS set_updated_at ON products;
 CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON products
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
