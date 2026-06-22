@@ -168,7 +168,51 @@ docker-compose exec redis redis-cli
 #### Monitor Redis activity
 docker-compose exec redis redis-cli monitor
 
-#### Flush cache
+## 5) Start With Makefile commands:
+
+### 🚀 Quick Usage Examples
+
+#### Start everything
+make up
+
+#### Check if everything is working
+make health
+
+#### Check migration status
+make migrate-status
+
+#### View API logs
+make logs api
+
+#### Test the API endpoints
+make api-products
+make api-stores
+make api-categories
+
+#### Stop everything
+make down
+
+### Helpful API testing commands:
+
+#### Check API health (now uses /api/v1/health)
+make health
+
+#### Get API status with pretty JSON
+make api-status
+
+#### Fetch products
+make api-products
+
+#### Fetch stores
+make api-stores
+
+#### Fetch categories
+make api-categories
+
+
+
+
+## Flush cache
 docker-compose exec redis redis-cli flushall
 🔧 Environment Variables
 Required Configuration
