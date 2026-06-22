@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: hardware-store-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: hardware_store
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hardware_store"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hardware-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: hardware-store-cache
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hardware-network
+
+  # Main API Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hardware-store-api
+    ports:
+      - "8080:8080"
+    environment:
+      # App Config
+      APP_NAME: ${APP_NAME}
+      APP_LOGO_URL: ${APP_LOGO_URL:-/images/logo.svg}
+      APP_ENV: ${APP_ENV}
+      APP_PORT: ${APP_PORT}
+      APP_URL: ${APP_URL}
+      
+      # Database
+      DATABASE_URL: postgres://postgres:${DB_PASSWORD}@postgres:5432/hardware_store?sslmode=disable
+      
+      # Redis
+      REDIS_URL: redis://redis:6379
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRY_MINUTES: ${JWT_ACCESS_EXPIRY_MINUTES}
+      JWT_REFRESH_EXPIRY_DAYS: ${JWT_REFRESH_EXPIRY_DAYS}
+      
+      # Encryption
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      
+      # M-Pesa
+      MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY}
+      MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET}
+      MPESA_SHORTCODE: ${MPESA_SHORTCODE}
+      MPESA_PASSKEY: ${MPESA_PASSKEY}
+      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL}
+      MPESA_BASE_URL: ${MPESA_BASE_URL}
+      
+      # Airtel Money
+      AIRTEL_CLIENT_ID: ${AIRTEL_CLIENT_ID}
+      AIRTEL_CLIENT_SECRET: ${AIRTEL_CLIENT_SECRET}
+      AIRTEL_BASE_URL: ${AIRTEL_BASE_URL}
+      
+      # WhatsApp (Green API)
+      GREENAPI_API_URL: ${GREENAPI_API_URL}
+      GREENAPI_MEDIA_URL: ${GREENAPI_MEDIA_URL}
+      GREENAPI_ID_INSTANCE: ${GREENAPI_ID_INSTANCE}
+      GREENAPI_API_TOKEN: ${GREENAPI_API_TOKEN}
+      GREENAPI_PHONE: ${GREENAPI_PHONE}
+      
+      # Email
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Hardware Store}
+      
+      # Geocoding
+      PHOTON_BASE_URL: ${PHOTON_BASE_URL}
+      NOMINATIM_BASE_URL: ${NOMINATIM_BASE_URL}
+      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT}
+      OPENCAGE_API_KEY: ${OPENCAGE_API_KEY}
+      
+      # Card Payments (Pesapal)
+      PESAPAL_CONSUMER_KEY: ${PESAPAL_CONSUMER_KEY}
+      PESAPAL_CONSUMER_SECRET: ${PESAPAL_CONSUMER_SECRET}
+      PESAPAL_REDIRECT_URL: ${PESAPAL_REDIRECT_URL}
+      PESAPAL_CALLBACK_URL: ${PESAPAL_CALLBACK_URL}
+      PESAPAL_BASE_URL: ${PESAPAL_BASE_URL}
+      
+      # Cloudinary
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      
+      # Dispute window
+      DISPUTE_WINDOW_HOURS: ${DISPUTE_WINDOW_HOURS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./images:/app/images
+      - ./migrations:/app/migrations
+    restart: unless-stopped
+    networks:
+      - hardware-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Adminer for database management (remove in production)
+  adminer:
+    image: adminer:4
+    container_name: hardware-store-adminer
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - hardware-network
+    profiles:
+      - admin
+
+  # Optional: Redis Commander for Redis management (remove in production)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: hardware-store-redis-commander
+    ports:
+      - "8082:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - hardware-network
+    profiles:
+      - admin
+
+networks:
+  hardware-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
