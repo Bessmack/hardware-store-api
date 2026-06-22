@@ -445,3 +445,548 @@ docker-compose exec postgres psql -U postgres -d hardware_store
 
 #### Migrations
 docker-compose exec api ./main migrate
+
+
+
+
+
+# 📚 API Routes Documentation
+
+All API endpoints are prefixed with `/api/v1`. The API uses **JWT authentication** and **role-based access control**.
+
+---
+
+## 🔐 Authentication
+
+Most endpoints require authentication. Include the JWT token in the `Authorization` header:
+
+```http
+Authorization: Bearer <your-jwt-token>
+```
+
+---
+
+## 👥 User Roles
+
+| Role         | Description                                                                 |
+| ------------ | --------------------------------------------------------------------------- |
+| `customer`   | Regular customers — can browse, order, and manage their profile             |
+| `cashier`    | Store staff — can manage orders and inventory for their assigned store      |
+| `admin`      | Store administrators — full access to their store's operations              |
+| `superadmin` | Platform administrators — full access to all stores and system settings     |
+
+---
+
+## 📍 Public Endpoints
+
+### Health Check
+
+```http
+GET /api/v1/health
+```
+
+**Response:**
+
+```json
+{ "status": "ok" }
+```
+
+### Payment Methods
+
+```http
+GET /api/v1/payments/methods
+```
+
+Returns the list of available payment methods (MPesa, Airtel, Card).
+
+### Stores
+
+| Method | Endpoint                              | Description                          |
+| ------ | ------------------------------------- | ------------------------------------ |
+| GET    | `/api/v1/stores`                      | List all active stores               |
+| GET    | `/api/v1/stores/{storeID}`            | Get store details                    |
+| GET    | `/api/v1/stores/{storeID}/products`   | Get products for a specific store    |
+
+### Products
+
+| Method | Endpoint                        | Description         |
+| ------ | ------------------------------- | ------------------- |
+| GET    | `/api/v1/products/{productID}`  | Get product details |
+
+### Geolocation
+
+| Method | Endpoint                      | Description                              |
+| ------ | ----------------------------- | ---------------------------------------- |
+| POST   | `/api/v1/geo/location`        | Save user location (optional auth)       |
+| GET    | `/api/v1/geo/autocomplete`    | Address autocomplete                     |
+| GET    | `/api/v1/geo/geocode`         | Geocode address to coordinates           |
+
+---
+
+## 🔑 Auth Endpoints
+
+| Method | Endpoint                | Description         | Rate Limit |
+| ------ | ----------------------- | ------------------- | ---------- |
+| POST   | `/api/v1/auth/register` | Register new user   | Tight      |
+| POST   | `/api/v1/auth/login`    | Login user          | Tight      |
+| POST   | `/api/v1/auth/refresh`  | Refresh JWT token   | Standard   |
+| POST   | `/api/v1/auth/logout`   | Logout user         | Standard   |
+
+**Registration Request:**
+
+```json
+{
+  "email": "user@example.com",
+  "phone": "254712345678",
+  "password": "password123",
+  "first_name": "John",
+  "last_name": "Doe"
+}
+```
+
+**Login Request:**
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+**Login Response:**
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "role": "customer"
+  }
+}
+```
+
+---
+
+## 👤 Customer Endpoints
+
+> **Requires:** `customer`, `cashier`, `admin`, or `superadmin` role
+
+### User Profile
+
+| Method | Endpoint           | Description                  |
+| ------ | ------------------ | ---------------------------- |
+| GET    | `/api/v1/users/me` | Get current user profile     |
+| PUT    | `/api/v1/users/me` | Update current user profile  |
+
+### Cart
+
+| Method | Endpoint                          | Description                              |
+| ------ | --------------------------------- | ---------------------------------------- |
+| GET    | `/api/v1/cart`                    | Get current cart                         |
+| POST   | `/api/v1/cart/items`              | Add item to cart                         |
+| PUT    | `/api/v1/cart/items/{itemID}`     | Update item quantity                     |
+| DELETE | `/api/v1/cart/items/{itemID}`     | Remove item from cart                    |
+| GET    | `/api/v1/cart/validate`           | Validate cart (check prices, stock)      |
+
+**Add to Cart Request:**
+
+```json
+{
+  "product_id": "uuid",
+  "store_id": "uuid",
+  "quantity": 2
+}
+```
+
+### Wishlist
+
+| Method | Endpoint                                 | Description                      |
+| ------ | ---------------------------------------- | -------------------------------- |
+| GET    | `/api/v1/wishlist`                       | Get user's wishlist              |
+| POST   | `/api/v1/wishlist/items`                 | Add product to wishlist          |
+| DELETE | `/api/v1/wishlist/items/{productID}`     | Remove product from wishlist     |
+
+**Add to Wishlist Request:**
+
+```json
+{ "product_id": "uuid" }
+```
+
+### Delivery
+
+| Method | Endpoint                   | Description         |
+| ------ | -------------------------- | ------------------- |
+| GET    | `/api/v1/delivery/quote`   | Get delivery quote  |
+
+**Delivery Quote Request:**
+
+```json
+{
+  "store_id": "uuid",
+  "delivery_address": {
+    "latitude": -1.2921,
+    "longitude": 36.8219
+  },
+  "cart_items": [
+    { "product_id": "uuid", "quantity": 2 }
+  ]
+}
+```
+
+### Orders
+
+| Method | Endpoint                              | Description                          |
+| ------ | ------------------------------------- | ------------------------------------ |
+| POST   | `/api/v1/orders`                      | Place new order                      |
+| GET    | `/api/v1/orders`                      | List user's orders                   |
+| GET    | `/api/v1/orders/{orderID}`            | Get specific order                   |
+| GET    | `/api/v1/orders/{orderID}/track`      | Track order status                   |
+| DELETE | `/api/v1/orders/{orderID}`            | Cancel order                         |
+| POST   | `/api/v1/orders/{orderID}/dispute`    | Raise a dispute (after delivery)     |
+
+**Place Order Request:**
+
+```json
+{
+  "store_id": "uuid",
+  "delivery_type": "delivery",
+  "delivery_address": {
+    "address_text": "123 Main St, Nairobi",
+    "latitude": -1.2921,
+    "longitude": 36.8219
+  },
+  "payment_method": "mpesa",
+  "payment_provider": "mpesa"
+}
+```
+
+---
+
+## 🏪 Staff Endpoints
+
+> **Requires:** `cashier`, `admin`, or `superadmin` role + store scope
+
+### Store Operations
+
+| Method | Endpoint                                    | Description                       |
+| ------ | ------------------------------------------- | --------------------------------- |
+| GET    | `/api/v1/store/orders`                      | List orders for assigned store    |
+| GET    | `/api/v1/store/orders/{orderID}`            | Get order details                 |
+| PUT    | `/api/v1/store/orders/{orderID}/status`     | Update order status               |
+
+**Update Order Status Request:**
+
+```json
+{
+  "status": "confirmed",
+  "note": "Order confirmed, preparing for dispatch"
+}
+```
+
+### Inventory Management
+
+| Method | Endpoint                                  | Description           |
+| ------ | ----------------------------------------- | --------------------- |
+| GET    | `/api/v1/store/inventory`                 | List store inventory  |
+| PUT    | `/api/v1/store/inventory/{productID}`     | Update inventory      |
+
+**Update Inventory Request:**
+
+```json
+{
+  "price": 1500.00,
+  "stock_quantity": 100,
+  "is_available": true
+}
+```
+
+### Product Management
+
+| Method | Endpoint                                 | Description          |
+| ------ | ---------------------------------------- | -------------------- |
+| POST   | `/api/v1/store/products`                 | Create new product   |
+| PUT    | `/api/v1/store/products/{productID}`     | Update product       |
+| DELETE | `/api/v1/store/products/{productID}`     | Deactivate product   |
+
+**Create Product Request:**
+
+```json
+{
+  "name": "Hammer 16oz",
+  "description": "Steel hammer with wooden handle",
+  "category": "tools",
+  "weight_kg": 0.5,
+  "images": ["public_id_1", "public_id_2"],
+  "constraint_type": "weight"
+}
+```
+
+### Proof of Delivery (POD)
+
+| Method | Endpoint                                     | Description                  |
+| ------ | -------------------------------------------- | ---------------------------- |
+| POST   | `/api/v1/store/pod/submit`                   | Submit proof of delivery     |
+| GET    | `/api/v1/store/orders/{orderID}/pod`         | Get POD details              |
+| GET    | `/api/v1/store/orders/{orderID}/dispute`     | Get dispute details          |
+
+**Submit POD Request:**
+
+```json
+{
+  "order_id": "uuid",
+  "otp_code": "123456",
+  "photo_public_id": "delivery-photos/order-abc123",
+  "latitude": -1.2921,
+  "longitude": 36.8219
+}
+```
+
+### Delivery Rates
+
+| Method | Endpoint                                              | Description                    |
+| ------ | ----------------------------------------------------- | ------------------------------ |
+| GET    | `/api/v1/store/delivery/rates`                        | Get store delivery rates       |
+| PUT    | `/api/v1/store/delivery/rates`                        | Update store delivery rates    |
+| DELETE | `/api/v1/store/delivery/rates/{vehicleType}`          | Delete store rate override     |
+
+**Update Delivery Rates Request:**
+
+```json
+{
+  "vehicle_type": "bike",
+  "base_fee": 60.00,
+  "per_km": 60.00,
+  "max_weight_kg": 130.00,
+  "max_radius_km": 20.00
+}
+```
+
+### Dispute Resolution
+
+| Method | Endpoint                                          | Description         |
+| ------ | ------------------------------------------------- | ------------------- |
+| PUT    | `/api/v1/store/disputes/{disputeID}/resolve`      | Resolve a dispute   |
+
+**Resolve Dispute Request:**
+
+```json
+{
+  "status": "resolved",
+  "notes": "Issue resolved with customer"
+}
+```
+
+### Store Reports
+
+| Method | Endpoint                | Description            |
+| ------ | ----------------------- | ---------------------- |
+| GET    | `/api/v1/store/report`  | Generate store report  |
+
+---
+
+## 👑 Superadmin Endpoints
+
+> **Requires:** `superadmin` role only
+
+### Store Management
+
+| Method | Endpoint                                      | Description                                  |
+| ------ | --------------------------------------------- | -------------------------------------------- |
+| POST   | `/api/v1/stores`                              | Create new store                             |
+| PUT    | `/api/v1/stores/{storeID}`                    | Update store                                 |
+| PUT    | `/api/v1/stores/{storeID}/credentials`        | Update M-Pesa credentials                    |
+| PUT    | `/api/v1/stores/{storeID}/deactivate`         | Deactivate store                             |
+| PUT    | `/api/v1/stores/{storeID}/reactivate`         | Reactivate store                             |
+| GET    | `/api/v1/stores/all`                          | List all stores (including inactive)         |
+
+**Create Store Request:**
+
+```json
+{
+  "name": "Nairobi Branch",
+  "address": "123 Main St",
+  "county": "Nairobi",
+  "latitude": -1.2921,
+  "longitude": 36.8219,
+  "phone": "254712345678",
+  "email": "nairobi@hardware.store",
+  "mpesa_paybill": "522522",
+  "mpesa_shortcode": "174379",
+  "mpesa_passkey": "passkey_here"
+}
+```
+
+**Update Store Credentials Request:**
+
+```json
+{
+  "mpesa_consumer_key": "consumer_key",
+  "mpesa_consumer_secret": "consumer_secret"
+}
+```
+
+### Global Delivery Rates
+
+| Method | Endpoint                              | Description                            |
+| ------ | ------------------------------------- | -------------------------------------- |
+| PUT    | `/api/v1/delivery/rates/global`       | Update global default delivery rates   |
+
+**Update Global Rates Request:**
+
+```json
+{
+  "vehicle_type": "pickup",
+  "base_fee": 500.00,
+  "per_km": 380.00,
+  "max_weight_kg": 2000.00,
+  "max_radius_km": 120.00
+}
+```
+
+### Global Reports
+
+| Method | Endpoint                  | Description                       |
+| ------ | ------------------------- | --------------------------------- |
+| GET    | `/api/v1/reports/global`  | Generate global platform report   |
+
+### User Management
+
+| Method | Endpoint                    | Description                  |
+| ------ | --------------------------- | ---------------------------- |
+| GET    | `/api/v1/users`             | List all admins and staff    |
+| GET    | `/api/v1/users/{userID}`    | Get user details             |
+| PUT    | `/api/v1/users/{userID}`    | Deactivate user *(TODO)*     |
+
+---
+
+## 💳 Payment Callbacks (Webhooks)
+
+> These endpoints are called by payment providers and **do not require authentication**.
+
+| Method | Endpoint                                              | Description                                |
+| ------ | ----------------------------------------------------- | ------------------------------------------ |
+| POST   | `/api/v1/payments/mpesa/callback/{storeID}`           | M-Pesa payment callback (IP allowlist)     |
+| POST   | `/api/v1/payments/airtel/callback/{storeID}`          | Airtel payment callback (IP allowlist)     |
+| POST   | `/api/v1/payments/card/callback`                      | Pesapal card payment callback              |
+
+---
+
+## 📊 Rate Limits
+
+Different endpoints have different rate limits to prevent abuse:
+
+| Endpoint                  | Rate Limit                |
+| ------------------------- | ------------------------- |
+| `/api/v1/auth/register`   | Tight (5 per minute)      |
+| `/api/v1/auth/login`      | Tight (5 per minute)      |
+| `/api/v1/auth/refresh`    | Standard (30 per minute)  |
+| `/api/v1/geo/*`           | Tight (10 per minute/IP)  |
+| All other endpoints       | Standard (60 per minute/IP) |
+
+---
+
+## 🔒 Security Notes
+
+- **Authentication:** JWT tokens are required for all protected endpoints. Tokens expire after 30 minutes (configurable via `JWT_ACCESS_EXPIRY_MINUTES`).
+- **Refresh Tokens:** Use the `/refresh` endpoint to get a new access token. Refresh tokens expire after 7 days.
+- **IP Allowlisting:** M-Pesa and Airtel callbacks are protected by IP allowlisting to ensure only provider servers can call them.
+- **Encryption:** Sensitive fields (M-Pesa credentials) are encrypted using **AES-256-GCM** before storing in the database.
+- **Role-Based Access:** Routes are protected by role-based access control. Customers cannot access staff routes, and staff cannot access superadmin routes.
+- **Store Scoping:** Staff members are automatically scoped to their assigned store. They can only access data for their store.
+
+---
+
+## 💡 Common Use Cases
+
+### 1. Complete Customer Checkout Flow
+
+```bash
+# 1. Register/Login
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+
+# 2. Get delivery quote
+GET /api/v1/delivery/quote?store_id=...&lat=...&lng=...
+
+# 3. Place order
+POST /api/v1/orders
+
+# 4. Track order
+GET /api/v1/orders/{orderID}/track
+
+# 5. Raise dispute (after delivery)
+POST /api/v1/orders/{orderID}/dispute
+```
+
+### 2. Staff Order Fulfillment Flow
+
+```bash
+# 1. View store orders
+GET /api/v1/store/orders
+
+# 2. Update order status
+PUT /api/v1/store/orders/{orderID}/status
+
+# 3. Submit POD
+POST /api/v1/store/pod/submit
+
+# 4. Handle disputes
+GET /api/v1/store/orders/{orderID}/dispute
+PUT /api/v1/store/disputes/{disputeID}/resolve
+```
+
+### 3. Superadmin Store Setup
+
+```bash
+# 1. Create store
+POST /api/v1/stores
+
+# 2. Configure M-Pesa credentials
+PUT /api/v1/stores/{storeID}/credentials
+
+# 3. Set delivery rates
+PUT /api/v1/store/delivery/rates
+PUT /api/v1/delivery/rates/global
+
+# 4. Manage staff
+GET /api/v1/users
+PUT /api/v1/users/{userID}
+```
+
+---
+
+## 🧪 Testing Endpoints
+
+Use the provided test script:
+
+```bash
+./test_endpoints.sh
+```
+
+Or test individual endpoints with **cURL**:
+
+```bash
+# Health check
+curl http://localhost:8080/api/v1/health
+
+# Get stores
+curl http://localhost:8080/api/v1/stores
+
+# Login
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+```
+
+> **Note:** All endpoints return JSON responses. Error responses follow this format:
+
+```json
+{
+  "error": "Error message description",
+  "status": 400
+}
+```
