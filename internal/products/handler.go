@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/Bessmack/hardware-store-api/internal/geo"
 	"github.com/Bessmack/hardware-store-api/internal/middleware"
@@ -40,8 +41,69 @@ func NewHandler(service *Service, locationService *geo.LocationService) *Handler
 
 // ── Public handlers ───────────────────────────────────────────────────────────
 
-// List returns products in the customer-safe view for the nearest/selected store.
-// Store is resolved from: ?store_id= param → cached location → empty (prompt).
+// ListAll handles GET /api/v1/products
+// Query params:
+//
+//	q             full-text search term
+//	category      category slug (e.g. "plumbing")
+//	subcategory   subcategory UUID
+//	page          page number (default 1)
+//	limit         results per page (default 24, max 100)
+func (h *Handler) ListAll(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	page, _ := strconv.Atoi(q.Get("page"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	f := ListFilter{
+		Query:         q.Get("q"),
+		CategorySlug:  q.Get("category"),
+		SubcategoryID: q.Get("subcategory"),
+		Page:          page,
+		Limit:         limit,
+	}
+
+	products, total, err := h.service.ListAll(r.Context(), f)
+	if err != nil {
+		response.InternalServerError(w)
+		return
+	}
+
+	// Normalise after service sets defaults
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.Limit < 1 {
+		f.Limit = 24
+	}
+
+	response.Paginated(w, products, response.Meta{
+		Page:       f.Page,
+		PerPage:    f.Limit,
+		TotalItems: total,
+		TotalPages: (total + f.Limit - 1) / f.Limit,
+	})
+}
+
+// GetByID handles GET /api/v1/products/{productID}
+// Returns the product detail with prices across all active stores.
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "productID")
+
+	detail, err := h.service.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			response.NotFound(w, "product not found")
+			return
+		}
+		response.InternalServerError(w)
+		return
+	}
+	response.Success(w, detail)
+}
+
+// List handles GET /api/v1/stores/{storeID}/products
+// Returns products for a specific store in the customer-safe view.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	storeID := r.URL.Query().Get("store_id")
 
@@ -52,7 +114,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if storeID == "" {
-		response.BadRequest(w, "could not determine your nearest store — please allow location access or pass store_id")
+		response.BadRequest(w, "could not determine your nearest store — Allow location access or pass store_id")
 		return
 	}
 
@@ -74,7 +136,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		storeID = ResolveStoreID("", loc)
 	}
 
-	// Product detail with nearest store price
+		// Product detail with nearest store price
 	var customerView *ProductCustomerResponse
 	if storeID != "" {
 		p, err := h.service.GetForCustomer(r.Context(), id, storeID)
@@ -100,7 +162,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		"product":    customerView,
 		"all_prices": allPrices,
 	})
-}
+	}
 
 // ── Staff handlers ────────────────────────────────────────────────────────────
 

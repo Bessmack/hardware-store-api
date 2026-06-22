@@ -41,7 +41,8 @@ type Product struct {
 	ID             string         `db:"id"`
 	Name           string         `db:"name"`
 	Description    string         `db:"description"`
-	Category       string         `db:"category"`
+	Category       string         `db:"category"`        // legacy free-text; prefer SubcategoryID
+	SubcategoryID  string         `db:"subcategory_id"`  // FK → subcategories.id
 	WeightKg       float64        `db:"weight_kg"`
 	LengthCm       float64        `db:"length_cm"`
 	WidthCm        float64        `db:"width_cm"`
@@ -64,6 +65,10 @@ type ProductWithInventory struct {
 	StockQuantity  int     `db:"stock_quantity"`
 	LowStockAlert  int     `db:"low_stock_alert"`
 	IsAvailable    bool    `db:"is_available"`
+	// Denormalised from JOIN — populated by ListAll and detail queries.
+	SubcategoryName string `db:"subcategory_name"`
+	CategoryName    string `db:"category_name"`
+	CategorySlug    string `db:"category_slug"`
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
@@ -71,7 +76,7 @@ type ProductWithInventory struct {
 type CreateProductRequest struct {
 	Name           string         `json:"name"            validate:"required"`
 	Description    string         `json:"description"`
-	Category       string         `json:"category"        validate:"required"`
+	SubcategoryID  string         `json:"subcategory_id"`
 	WeightKg       float64        `json:"weight_kg"`
 	LengthCm       float64        `json:"length_cm"`
 	WidthCm        float64        `json:"width_cm"`
@@ -84,7 +89,7 @@ type CreateProductRequest struct {
 type UpdateProductRequest struct {
 	Name           string         `json:"name"`
 	Description    string         `json:"description"`
-	Category       string         `json:"category"`
+	SubcategoryID  string         `json:"subcategory_id"`
 	WeightKg       float64        `json:"weight_kg"`
 	LengthCm       float64        `json:"length_cm"`
 	WidthCm        float64        `json:"width_cm"`
@@ -100,16 +105,18 @@ type UpdateProductRequest struct {
 // StockQuantity is deliberately absent — customers only see InStock and
 // LimitedAvailability to prevent theft-inducing stock visibility.
 type ProductCustomerResponse struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	Description    string         `json:"description,omitempty"`
-	Category       string         `json:"category"`
-	Images         []string       `json:"images"`
-	Price          float64        `json:"price"`
-	Currency       string         `json:"currency"`
-	InStock        bool           `json:"in_stock"`
-	// True when stock is low (below low_stock_alert threshold) — no number revealed.
-	LimitedAvailability bool      `json:"limited_availability"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Description         string   `json:"description,omitempty"`
+	SubcategoryID       string   `json:"subcategory_id,omitempty"`
+	SubcategoryName     string   `json:"subcategory_name,omitempty"`
+	CategoryName        string   `json:"category_name,omitempty"`
+	CategorySlug        string   `json:"category_slug,omitempty"`
+	Images              []string `json:"images"`
+	Price               float64  `json:"price"`
+	Currency            string   `json:"currency"`
+	InStock             bool     `json:"in_stock"`
+	LimitedAvailability bool     `json:"limited_availability"`
 }
 
 // ProductStaffResponse is what cashiers, admins, and superadmin see.
@@ -118,7 +125,9 @@ type ProductStaffResponse struct {
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
 	Description    string         `json:"description,omitempty"`
-	Category       string         `json:"category"`
+	SubcategoryID   string         `json:"subcategory_id,omitempty"`
+	SubcategoryName string         `json:"subcategory_name,omitempty"`
+	CategoryName    string         `json:"category_name,omitempty"`
 	WeightKg       float64        `json:"weight_kg"`
 	LengthCm       float64        `json:"length_cm,omitempty"`
 	WidthCm        float64        `json:"width_cm,omitempty"`
@@ -146,6 +155,27 @@ type StorePriceEntry struct {
 	InStock    bool    `json:"in_stock"`
 }
 
+// ProductDetailResponse is returned by GET /api/v1/products/{id}.
+// Includes physical specs and prices across every active store so the
+// customer can compare branches in a single request.
+type ProductDetailResponse struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description,omitempty"`
+	SubcategoryID   string            `json:"subcategory_id,omitempty"`
+	SubcategoryName string            `json:"subcategory_name,omitempty"`
+	CategoryName    string            `json:"category_name,omitempty"`
+	CategorySlug    string            `json:"category_slug,omitempty"`
+	Images          []string          `json:"images"`
+	WeightKg        float64           `json:"weight_kg,omitempty"`
+	LengthCm        float64           `json:"length_cm,omitempty"`
+	WidthCm         float64           `json:"width_cm,omitempty"`
+	HeightCm        float64           `json:"height_cm,omitempty"`
+	ConstraintType  ConstraintType    `json:"constraint_type"`
+	MinVehicleType  VehicleType       `json:"min_vehicle_type,omitempty"`
+	StorePrices     []StorePriceEntry `json:"store_prices"`
+}
+
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
 // ToCustomerResponse converts an internal ProductWithInventory to the safe
@@ -155,7 +185,10 @@ func ToCustomerResponse(p ProductWithInventory) ProductCustomerResponse {
 		ID:                  p.ID,
 		Name:                p.Name,
 		Description:         p.Description,
-		Category:            p.Category,
+		SubcategoryID:       p.SubcategoryID,
+		SubcategoryName:     p.SubcategoryName,
+		CategoryName:        p.CategoryName,
+		CategorySlug:        p.CategorySlug,
 		Images:              p.Images,
 		Price:               p.Price,
 		Currency:            p.Currency,
@@ -170,7 +203,9 @@ func ToStaffResponse(p ProductWithInventory) ProductStaffResponse {
 		ID:             p.ID,
 		Name:           p.Name,
 		Description:    p.Description,
-		Category:       p.Category,
+		SubcategoryID:   p.SubcategoryID,
+		SubcategoryName: p.SubcategoryName,
+		CategoryName:    p.CategoryName,
 		WeightKg:       p.WeightKg,
 		LengthCm:       p.LengthCm,
 		WidthCm:        p.WidthCm,
@@ -185,5 +220,25 @@ func ToStaffResponse(p ProductWithInventory) ProductStaffResponse {
 		IsAvailable:    p.IsAvailable,
 		IsActive:       p.IsActive,
 		UpdatedAt:      p.UpdatedAt,
+	}
+}
+
+func ToDetailResponse(p ProductWithInventory, prices []StorePriceEntry) ProductDetailResponse {
+	return ProductDetailResponse{
+		ID:              p.ID,
+		Name:            p.Name,
+		Description:     p.Description,
+		SubcategoryID:   p.SubcategoryID,
+		SubcategoryName: p.SubcategoryName,
+		CategoryName:    p.CategoryName,
+		CategorySlug:    p.CategorySlug,
+		Images:          p.Images,
+		WeightKg:        p.WeightKg,
+		LengthCm:        p.LengthCm,
+		WidthCm:         p.WidthCm,
+		HeightCm:        p.HeightCm,
+		ConstraintType:  p.ConstraintType,
+		MinVehicleType:  p.MinVehicleType,
+		StorePrices:     prices,
 	}
 }

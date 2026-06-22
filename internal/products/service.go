@@ -8,6 +8,24 @@ import (
 	"github.com/Bessmack/hardware-store-api/internal/users"
 )
 
+// ListFilter encapsulates every filter the global product listing supports.
+type ListFilter struct {
+	CategorySlug  string // filter by category slug (e.g. "plumbing")
+	SubcategoryID string // filter by subcategory UUID
+	Query         string // full-text + ILIKE search term
+	Page          int    // 1-based
+	Limit         int    // results per page
+}
+
+func (f *ListFilter) normalise() {
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.Limit < 1 || f.Limit > 100 {
+		f.Limit = 24
+	}
+}
+
 type Service struct {
 	repo *Repository
 }
@@ -18,9 +36,7 @@ func NewService(repo *Repository) *Service {
 
 // ── Public / customer-facing ──────────────────────────────────────────────────
 
-// ListForCustomer returns all available products for a store with the
-// customer-safe view (no stock quantities).
-// The storeID is resolved from the customer's cached location before this is called.
+// ListForCustomer returns available products for a specific store.
 func (s *Service) ListForCustomer(ctx context.Context, storeID string) ([]ProductCustomerResponse, error) {
 	products, err := s.repo.ListWithInventory(ctx, storeID)
 	if err != nil {
@@ -36,7 +52,7 @@ func (s *Service) ListForCustomer(ctx context.Context, storeID string) ([]Produc
 	return result, nil
 }
 
-// GetForCustomer returns a single product in the customer-safe view.
+// GetForCustomer returns a single product in the customer-safe view for a store.
 func (s *Service) GetForCustomer(ctx context.Context, productID, storeID string) (*ProductCustomerResponse, error) {
 	p, err := s.repo.GetWithInventory(ctx, productID, storeID)
 	if err != nil {
@@ -46,8 +62,43 @@ func (s *Service) GetForCustomer(ctx context.Context, productID, storeID string)
 	return &resp, nil
 }
 
+// ListAll returns the global product catalogue with search, category/subcategory
+// filtering, and pagination. Price is the minimum across all active stores.
+func (s *Service) ListAll(ctx context.Context, f ListFilter) ([]ProductCustomerResponse, int, error) {
+	f.normalise()
+
+	products, err := s.repo.ListAll(ctx, f)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := s.repo.CountAll(ctx, f)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	result := make([]ProductCustomerResponse, 0, len(products))
+	for _, p := range products {
+		result = append(result, ToCustomerResponse(p))
+	}
+	return result, total, nil
+}
+
+// GetByID returns a single product with its prices across all active stores.
+func (s *Service) GetByID(ctx context.Context, id string) (*ProductDetailResponse, error) {
+	p, err := s.repo.GetByIDGlobal(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	prices, err := s.repo.GetAllStorePrices(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	resp := ToDetailResponse(*p, prices)
+	return &resp, nil
+}
+
 // GetAllStorePrices returns the price of a product across every active store.
-// Shown on the product detail page so customers can compare branches.
 func (s *Service) GetAllStorePrices(ctx context.Context, productID string) ([]StorePriceEntry, error) {
 	return s.repo.GetAllStorePrices(ctx, productID)
 }
@@ -113,7 +164,7 @@ func (s *Service) Reactivate(ctx context.Context, id string, requestedBy *users.
 	return s.repo.SetActive(ctx, id, true)
 }
 
-// ── Nearest store resolution helper ──────────────────────────────────────────
+// ── Location resolution ───────────────────────────────────────────────────────
 
 // ResolveStoreID determines which store's prices to use for a customer request.
 // Priority:
