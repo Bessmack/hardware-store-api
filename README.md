@@ -3,7 +3,7 @@
 # FIRST TIME SETUP???
 
 ## Clone your repo
-git clone <[your-repo-url](https://github.com/Bessmack/hardware-store-api)>
+git clone <[repo-url](https://github.com/Bessmack/hardware-store-api)>
 cd hardware-store-api
 
 ## Copy environment file
