@@ -11,6 +11,7 @@ import (
 
 	"github.com/Bessmack/hardware-store-api/internal/auth"
 	"github.com/Bessmack/hardware-store-api/internal/cart"
+	"github.com/Bessmack/hardware-store-api/internal/categories"
 	"github.com/Bessmack/hardware-store-api/internal/config"
 	"github.com/Bessmack/hardware-store-api/internal/delivery"
 	"github.com/Bessmack/hardware-store-api/internal/geo"
@@ -279,6 +280,10 @@ func main() {
 	paymentHandler   := payments.NewHandler(paymentRegistry, orderService)
 	reportsHandler  := reports.NewHandler(reportsService)
 
+	categoryRepo    := categories.NewRepository(db)
+	categoryService := categories.NewService(categoryRepo)
+	categoryHandler := categories.NewHandler(categoryService)
+
 	// ── 13. Router ────────────────────────────────────────────────────────────
 	router := server.NewRouter(
 		cfg,
@@ -287,12 +292,13 @@ func main() {
 		productHandler, inventoryHandler, cartHandler,
 		wishlistHandler, deliveryHandler, orderHandler,
 		podHandler, paymentHandler, reportsHandler,
+		categoryHandler,
 	)
 
 	// ── 14. HTTP Server ───────────────────────────────────────────────────────
 	srv := &http.Server{
-		Addr: fmt.Sprintf(":%s", cfg.App.Port),
-		Handler: router,
+		Addr:         fmt.Sprintf(":%s", cfg.App.Port),
+		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

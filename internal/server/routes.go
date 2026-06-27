@@ -5,6 +5,7 @@ import (
 
 	"github.com/Bessmack/hardware-store-api/internal/auth"
 	"github.com/Bessmack/hardware-store-api/internal/cart"
+	"github.com/Bessmack/hardware-store-api/internal/categories"
 	"github.com/Bessmack/hardware-store-api/internal/config"
 	"github.com/Bessmack/hardware-store-api/internal/delivery"
 	"github.com/Bessmack/hardware-store-api/internal/geo"
@@ -45,6 +46,7 @@ func NewRouter(
 	podHandler *pod.Handler,
 	paymentHandler *payments.Handler,
 	reportsHandler *reports.Handler,
+	categoryHandler *categories.Handler,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -90,6 +92,23 @@ func NewRouter(
 			r.Get("/", storeHandler.ListActive)
 			r.Get("/{storeID}", storeHandler.GetPublic)
 			r.Get("/{storeID}/products", productHandler.List)
+		})
+
+		// ── Categories (public) ───────────────────────────────────────────────
+		// Returns all categories with subcategories embedded. Cached aggressively
+		// on the frontend — categories change rarely.
+		r.Route("/categories", func(r chi.Router) {
+			r.Get("/", categoryHandler.List)
+			r.Get("/{slug}", categoryHandler.Get)
+			r.Get("/{slug}/subcategories", categoryHandler.ListSubcategories)
+		})
+
+		// ── Products (public global listing) ─────────────────────────────────
+		// Supports ?category={slug} and ?subcategory_id={id} query params.
+		// Per-store listings are at /stores/{storeID}/products above.
+		r.Route("/products", func(r chi.Router) {
+			r.Get("/", productHandler.ListAll)
+			r.Get("/{productID}", productHandler.GetByID)
 		})
 
 		// ── Payment methods (public) ──────────────────────────────────────────
@@ -212,8 +231,21 @@ func NewRouter(
 			r.Get("/reports/global", reportsHandler.GlobalReport)
 
 			// User management
-			r.Get("/users", userHandler.ListAdmins)
-			r.Get("/users/{userID}", userHandler.DeactivateUser) // TODO: This should be a Get endpoint to retrieve user details
+			r.Post("/admins", userHandler.CreateAdmin)
+			r.Get("/admins", userHandler.ListAdmins)
+			r.Put("/admins/{id}/store", userHandler.AssignAdminToStore)
+			r.Get("/users/{id}", userHandler.GetByID)
+			r.Put("/users/{id}/deactivate", userHandler.DeactivateUser)
+			r.Put("/users/{id}/reactivate", userHandler.ReactivateUser)
+			r.Put("/store/staff/{id}/reactivate", userHandler.ReactivateStaff)
+
+			// Category management
+			r.Post("/categories", categoryHandler.Create)
+			r.Put("/categories/{id}", categoryHandler.Update)
+			r.Delete("/categories/{id}", categoryHandler.Delete)
+			r.Post("/categories/{id}/subcategories", categoryHandler.CreateSubcategory)
+			r.Put("/subcategories/{id}", categoryHandler.UpdateSubcategory)
+			r.Delete("/subcategories/{id}", categoryHandler.DeleteSubcategory)
 		})
 	})
 
