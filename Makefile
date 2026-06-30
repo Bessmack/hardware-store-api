@@ -287,6 +287,14 @@ api: api-status ## Alias for api-status
 .PHONY: db
 db: db-shell ## Alias for db-shell
 
+.PHONY: seed-superadmin
+seed-superadmin: ## Create the superadmin user
+	@echo "${GREEN}Creating superadmin user...${RESET}"
+	@docker-compose exec -T api go run scripts/seed_superadmin.go > /tmp/seed_superadmin.sql
+	@docker-compose exec -T postgres psql -U postgres -d hardware_store < /tmp/seed_superadmin.sql
+	@rm -f /tmp/seed_superadmin.sql
+	@echo "${GREEN}Superadmin created!${RESET}"
+
 # ── Help (default) ────────────────────────────────────────────────────────────
 .DEFAULT_GOAL := help
 

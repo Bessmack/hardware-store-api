@@ -6,6 +6,7 @@
 *.so
 *.dylib
 *.test
+/scripts/seed_superadmin.go
 
 # Go test & coverage
 coverage.out
