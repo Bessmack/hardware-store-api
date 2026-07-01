@@ -237,6 +237,13 @@ func NewRouter(
 			r.Get("/users/{id}", userHandler.GetByID)
 			r.Put("/users/{id}/deactivate", userHandler.DeactivateUser)
 			r.Put("/users/{id}/reactivate", userHandler.ReactivateUser)
+
+			// Staff management — also in superadmin block so superadmin
+			// can create/list/deactivate cashiers without a store assignment.
+			// The store-scoped group below handles the same for admins.
+			r.Post("/store/staff", userHandler.CreateStaff)
+			r.Get("/store/staff", userHandler.ListStoreStaff)
+			r.Put("/store/staff/{id}/deactivate", userHandler.DeactivateStaff)
 			r.Put("/store/staff/{id}/reactivate", userHandler.ReactivateStaff)
 
 			// Category management
